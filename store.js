@@ -92,7 +92,8 @@ function criarDivisaoLocal(novoId) {
 }
 
 // Código do convite para dividir contas: 10 letras/números fáceis de ditar (sem 0/o/1/l).
-const VALIDADE_CONVITE = 48 * 60 * 60 * 1000;
+// Validade de 47 h: a regra aceita até 48 h, e a folga cobre relógio do celular adiantado.
+const VALIDADE_CONVITE = 47 * 60 * 60 * 1000;
 function gerarCodigo() {
   const abc = 'abcdefghijkmnpqrstuvwxyz23456789';
   const b = new Uint8Array(10); crypto.getRandomValues(b);
