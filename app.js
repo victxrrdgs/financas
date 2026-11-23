@@ -1,8 +1,8 @@
-import { criarStore, modoLocal, COLECOES } from './store.js?v=2.3';
-import * as C from './calc.js?v=2.3';
-import * as L from './lock.js?v=2.3';
+import { criarStore, modoLocal, COLECOES } from './store.js?v=2.4';
+import * as C from './calc.js?v=2.4';
+import * as L from './lock.js?v=2.4';
 
-const VERSAO = '2.3';
+const VERSAO = '2.4';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -105,17 +105,20 @@ function agendarRender() {
 // Cria os lançamentos das recorrências para o mês aberto e o atual.
 // Só roda com dados confirmados pelo servidor, para não duplicar nem sobrescrever.
 function gerarRecorrentes() {
-  if (apagando || !srv.contas || !srv.entradas || !srv.recorrentes || !srv.config) return;
+  if (apagando || !srv.contas || !srv.entradas || !srv.recorrentes || !srv.config || !srv.compras) return;
   C.configurar(prefs());
-  for (const mes of new Set([ym, C.ymAtual()])) {
+  // O mês anterior também entra: a assinatura cobrada nele cai na fatura do mês aberto.
+  for (const mes of new Set([C.somarMes(ym, -1), ym, C.ymAtual()])) {
     for (const r of D.recorrentes) {
       if (!r.inicio || r.inicio > mes || (r.fim && mes > r.fim)) continue;
+      if (r.tipo === 'compra' && !carteira(r.carteiraId)) continue;
       const id = `${r.id}_${mes}`;
-      const col = r.tipo === 'entrada' ? 'entradas' : 'contas';
+      const col = r.tipo === 'entrada' ? 'entradas' : r.tipo === 'compra' ? 'compras' : 'contas';
       if (D[col].some((x) => x.id === id) || geradosNestaSessao.has(id)) continue;
       geradosNestaSessao.add(id);
       const doc = { descricao: r.descricao, valor: r.valor, data: C.dataNoPeriodo(mes, r.dia), recorrenteId: r.id, carteiraId: r.carteiraId || null };
       if (col === 'contas') Object.assign(doc, { categoria: r.categoria || 'Outros', pago: false, pagoEm: null });
+      if (col === 'compras') Object.assign(doc, { categoria: r.categoria || 'Assinaturas', parcelas: 1 });
       store.definir(col, id, doc);
     }
   }
@@ -809,7 +812,9 @@ function formCompra(cp, cardId) {
       <div><label>Cartão</label><select name="carteiraId">${cards.map((c) => `<option value="${c.id}" ${c.id === cp.carteiraId ? 'selected' : ''}>${esc(c.nome)}</option>`).join('')}</select></div>
       <div><label>Categoria</label><select name="categoria">${optsCategorias(cp.categoria)}</select></div>
     </div>
+    ${novo ? '<label class="chk-l"><input type="checkbox" name="repetir"> Assinatura: repetir todo mês neste cartão</label>' : ''}
     <div class="aviso" id="prev-parc"></div>
+    ${blocoRecorrente(cp.recorrenteId ? D.recorrentes.find((r) => r.id === cp.recorrenteId) : null)}
     ${botoes(!novo)}
   </form>`);
   const form = $('#f');
@@ -826,10 +831,19 @@ function formCompra(cp, cardId) {
     const f = new FormData(form);
     const valor = lerValor(f); if (valor === null) return;
     const dados = { descricao: f.get('descricao').trim(), valor, data: f.get('data'), parcelas: Number(f.get('parcelas')), carteiraId: f.get('carteiraId'), categoria: f.get('categoria') };
+    if (novo && f.get('repetir') === 'on') {
+      if (dados.parcelas > 1) { toast('Assinatura precisa ser à vista'); return; }
+      const recId = store.novoId(); const mes = C.mesDe(dados.data);
+      store.definir('recorrentes', recId, { tipo: 'compra', descricao: dados.descricao, valor, categoria: dados.categoria, carteiraId: dados.carteiraId, dia: Number(dados.data.slice(8, 10)), inicio: mes, fim: null });
+      store.definir('compras', `${recId}_${mes}`, { ...dados, recorrenteId: recId });
+      geradosNestaSessao.add(`${recId}_${mes}`);
+      fecharModal(); toast('🔁 Assinatura criada: lança todo mês neste cartão'); return;
+    }
     if (novo) store.adicionar('compras', dados); else store.atualizar('compras', cp.id, dados);
     fecharModal(); toast(novo ? 'Compra registrada' : 'Compra atualizada');
   });
-  ligarExcluir(() => store.remover('compras', cp.id));
+  ligarExcluir(() => (cp.recorrenteId ? store.atualizar('compras', cp.id, { excluida: true }) : store.remover('compras', cp.id)));
+  ligarParar();
 }
 
 function verFatura(cardId) {
@@ -845,7 +859,7 @@ function verFatura(cardId) {
         const ci = C.catInfo(p.compra.categoria);
         return `<div class="row"><div class="ic" style="--c:${ci.c}">${ci.e}</div>
           <div class="info" data-a="editar-compra" data-id="${p.compra.id}"><div class="t">${esc(p.compra.descricao)}</div>
-          <div class="m">${C.dataBR(p.compra.data)}${p.n > 1 ? ` · parcela ${p.i}/${p.n}` : ''}</div></div>
+          <div class="m">${C.dataBR(p.compra.data)}${p.n > 1 ? ` · parcela ${p.i}/${p.n}` : ''}${p.compra.recorrenteId ? ' · 🔁 assinatura' : ''}</div></div>
           <div class="v">${fmt(p.valor)}</div></div>`;
       }).join('')}</div>` : '<div class="vazio g">Nenhuma compra nesta fatura.</div>'}
     </div>
@@ -1023,7 +1037,7 @@ function gerenciarRecorrencias() {
   const ativas = D.recorrentes.filter((r) => !r.fim || r.fim >= h);
   abrirModal('Recorrências', ativas.length ? `<div class="list g">${ativas.map((r) => `<div class="row">
       <div class="ic" style="--c:${r.tipo === 'entrada' ? '#4ade80' : C.catInfo(r.categoria).c}">${r.tipo === 'entrada' ? '💰' : C.catInfo(r.categoria).e}</div>
-      <div class="info"><div class="t">${esc(r.descricao)}</div><div class="m">Todo dia ${r.dia}${r.fim ? ' · até ' + C.rotuloMes(r.fim).toLowerCase() : ''}</div></div>
+      <div class="info"><div class="t">${esc(r.descricao)}</div><div class="m">Todo dia ${r.dia}${r.tipo === 'compra' ? ` · 💳 ${esc(carteira(r.carteiraId)?.nome || 'cartão removido')}` : ''}${r.fim ? ' · até ' + C.rotuloMes(r.fim).toLowerCase() : ''}</div></div>
       <div class="v ${r.tipo === 'entrada' ? 'pos' : ''}">${fmt(r.valor)}</div>
       ${r.fim ? '' : `<button class="btn danger" style="flex:0;padding:8px 12px;font-size:.8rem" data-encerrar="${r.id}">Encerrar</button>`}
     </div>`).join('')}</div>
@@ -1292,7 +1306,7 @@ function exportarCSV() {
   const linhas = [];
   C.vis(D.contas).forEach((c) => linhas.push([c.data, 'Conta a pagar', c.descricao, c.categoria || 'Outros', num(-c.valor), c.pago ? `Paga em ${dBR(c.pagoEm)}` : 'Em aberto', nomeC(c.carteiraId), '']));
   C.vis(D.entradas).forEach((e) => linhas.push([e.data, 'Entrada', e.descricao, '', num(e.valor), 'Recebida', nomeC(e.carteiraId), '']));
-  D.compras.forEach((p) => linhas.push([p.data, 'Compra no cartão', p.descricao, p.categoria || 'Outros', num(-p.valor), '', nomeC(p.carteiraId), p.parcelas > 1 ? `${p.parcelas}x` : 'À vista']));
+  C.vis(D.compras).forEach((p) => linhas.push([p.data, p.recorrenteId ? 'Assinatura no cartão' : 'Compra no cartão', p.descricao, p.categoria || 'Outros', num(-p.valor), '', nomeC(p.carteiraId), p.parcelas > 1 ? `${p.parcelas}x` : 'À vista']));
   D.transferencias.forEach((t) => linhas.push([t.data, 'Transferência', `${nomeC(t.de)} → ${nomeC(t.para)}`, '', num(t.valor), '', '', '']));
   // Comissões (uma linha por parcela). Parcelas recebidas também aparecem como "Entrada".
   C.parcelasComissao(D, { incluirCanceladas: true }).forEach((p) => linhas.push([

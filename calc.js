@@ -115,7 +115,7 @@ export function parcelasDe(compra, card) {
 
 export function faturaDe(D, card, ym) {
   const itens = [];
-  D.compras.filter((x) => x.carteiraId === card.id).forEach((cp) => {
+  vis(D.compras).filter((x) => x.carteiraId === card.id).forEach((cp) => {
     parcelasDe(cp, card).filter((p) => p.ym === ym).forEach((p) => itens.push({ ...p, compra: cp }));
   });
   itens.sort((a, b) => b.compra.data.localeCompare(a.compra.data));
@@ -132,7 +132,7 @@ export const faturasMes = (D, ym) => cartoes(D).map((c) => faturaDe(D, c, ym));
 
 export function limiteUsado(D, card) {
   let usado = 0;
-  D.compras.filter((x) => x.carteiraId === card.id).forEach((cp) => {
+  vis(D.compras).filter((x) => x.carteiraId === card.id).forEach((cp) => {
     parcelasDe(cp, card).forEach((p) => {
       const f = D.faturas.find((x) => x.id === `${card.id}_${p.ym}`);
       if (!f || !f.pago) usado += p.valor;
@@ -188,7 +188,7 @@ export function gastosPorCategoria(D, ym) {
   const add = (k, v) => { k = k || 'Outros'; m[k] = r2((m[k] || 0) + (Number(v) || 0)); };
   vis(D.contas).filter((c) => noMes(c.data, ym)).forEach((c) => add(c.categoria, c.valor));
   cartoes(D).forEach((card) => {
-    D.compras.filter((x) => x.carteiraId === card.id).forEach((cp) => {
+    vis(D.compras).filter((x) => x.carteiraId === card.id).forEach((cp) => {
       parcelasDe(cp, card).filter((p) => noMes(diaNoMes(p.ym, card.vencimento), ym)).forEach((p) => add(cp.categoria, p.valor));
     });
   });
@@ -200,7 +200,7 @@ export function gastosPorDia(D, ym) {
   const m = {};
   const add = (iso, v) => { if (iso && noMes(iso, ym)) m[iso] = r2((m[iso] || 0) + Number(v || 0)); };
   vis(D.contas).filter((c) => c.pago).forEach((c) => add(c.pagoEm, c.valor));
-  D.compras.forEach((cp) => add(cp.data, cp.valor));
+  vis(D.compras).forEach((cp) => add(cp.data, cp.valor));
   return m;
 }
 
