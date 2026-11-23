@@ -1,9 +1,9 @@
-import { criarStore, modoLocal, COLECOES } from './store.js?v=2.7';
-import * as C from './calc.js?v=2.7';
-import * as P from './planos.js?v=2.7';
-import * as L from './lock.js?v=2.7';
+import { criarStore, modoLocal, COLECOES } from './store.js?v=2.8';
+import * as C from './calc.js?v=2.8';
+import * as P from './planos.js?v=2.8';
+import * as L from './lock.js?v=2.8';
 
-const VERSAO = '2.7';
+const VERSAO = '2.8';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -1217,7 +1217,7 @@ function telaConta() {
   </div></div>
 
   <div class="sec"><div class="sec-h"><h3>Seus dados</h3></div><div class="list g">
-    ${linhaConta('exportar-csv', '📊', '#4ade80', 'Exportar planilha (Excel)')}
+    ${linhaConta('exportar-planilha', '📊', '#4ade80', 'Exportar planilha do Excel', seta('.xlsx'))}
     ${linhaConta('exportar', '💾', '#60a5fa', 'Exportar backup completo')}
     ${linhaConta('importar', '📥', '#2dd4bf', 'Importar backup')}
     ${linhaConta('apagar-tudo', '🗑️', '#fb7185', 'Apagar todos os dados', '<span class="seta">›</span>', 'perigo')}
@@ -1440,26 +1440,21 @@ function baixar(nome, conteudo, tipo) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-function exportarCSV() {
-  const dBR = (iso) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : '');
-  const num = (v) => (Number(v) || 0).toFixed(2).replace('.', ',');
-  const nomeC = (id) => carteira(id)?.nome || '';
-  const linhas = [];
-  C.vis(D.contas).forEach((c) => linhas.push([c.data, 'Conta a pagar', c.descricao, c.categoria || 'Outros', num(-c.valor), c.pago ? `Paga em ${dBR(c.pagoEm)}` : 'Em aberto', nomeC(c.carteiraId), '']));
-  C.vis(D.entradas).forEach((e) => linhas.push([e.data, 'Entrada', e.descricao, '', num(e.valor), 'Recebida', nomeC(e.carteiraId), '']));
-  C.vis(D.compras).forEach((p) => linhas.push([p.data, p.recorrenteId ? 'Assinatura no cartão' : 'Compra no cartão', p.descricao, p.categoria || 'Outros', num(-p.valor), '', nomeC(p.carteiraId), p.parcelas > 1 ? `${p.parcelas}x` : 'À vista']));
-  D.transferencias.forEach((t) => linhas.push([t.data, 'Transferência', `${nomeC(t.de)} → ${nomeC(t.para)}`, '', num(t.valor), '', '', '']));
-  // Comissões (uma linha por parcela). Parcelas recebidas também aparecem como "Entrada".
-  C.parcelasComissao(D, { incluirCanceladas: true }).forEach((p) => linhas.push([
-    p.data, 'Comissão', `${p.com.empresa}${p.com.produto ? ' — ' + p.com.produto : ''} (venda ${dBR(p.com.dataVenda)}: ${num(p.com.valorVenda)})`, '', num(p.valor),
-    p.com.cancelada ? 'Venda cancelada' : p.recebido ? `Recebida em ${dBR(p.recebidoEm)}` : 'A receber', nomeC(p.carteiraId), p.n > 1 ? `${p.i + 1}/${p.n}` : '',
-  ]));
-  linhas.sort((a, b) => a[0].localeCompare(b[0]));
-  const cab = ['Data', 'Tipo', 'Descrição', 'Categoria', 'Valor (R$)', 'Situação', 'Conta/Cartão', 'Parcelas'];
-  const cel = (s) => (/[;"\n]/.test(String(s)) ? `"${String(s).replace(/"/g, '""')}"` : String(s));
-  const csv = [cab, ...linhas.map((l) => [dBR(l[0]), ...l.slice(1)])].map((l) => l.map(cel).join(';')).join('\r\n');
-  baixar(`financas-${C.hojeISO()}.csv`, '﻿' + csv, 'text/csv;charset=utf-8');
-  toast(`${linhas.length} lançamentos exportados`);
+// A planilha do Excel fica em planilha.js e só é carregada quando o usuário pede.
+let gerandoPlanilha = false;
+async function exportarPlanilha() {
+  if (gerandoPlanilha) return;
+  gerandoPlanilha = true;
+  toast('Gerando planilha…');
+  try {
+    const X = await import('./planilha.js?v=2.8');
+    const { blob, lancamentos } = await X.gerarPlanilha({ D, ym, nomeCarteira: (id) => carteira(id)?.nome || '', usuario: prefs().apelido || (usuario.displayName || '').split(' ')[0] });
+    baixar(`financas-${ym}.xlsx`, blob, blob.type);
+    toast(`Planilha de ${C.rotuloMes(ym).toLowerCase()} pronta · ${plural(lancamentos, 'lançamento', 'lançamentos')}`);
+  } catch (e) {
+    console.error(e);
+    toast(e.message || 'Não foi possível gerar a planilha');
+  } finally { gerandoPlanilha = false; }
 }
 
 async function exportar() {
@@ -1856,7 +1851,7 @@ const ACOES = {
   dia: (id) => { diaSel = diaSel === id ? null : id; render(); },
   recorrencias: gerenciarRecorrencias,
   exportar: () => exportar(),
-  'exportar-csv': () => exportarCSV(),
+  'exportar-planilha': () => exportarPlanilha(),
   importar: () => importar(),
   'apagar-tudo': () => apagarTudo(),
   'excluir-conta': () => excluirConta(),

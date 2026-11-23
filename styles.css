@@ -406,3 +406,24 @@ body.travado #app, body.travado #modal { display: none !important; }
 .pode .val { font-size: 1.6rem; }
 .mini { overflow: visible; }
 .row.imp .info { min-width: 0; }
+
+/* ---------- Abertura (v2.8) ---------- */
+/* 1º quadro = tela de abertura do Android: fundo do app + símbolo no centro. Tudo termina em ~0,95 s. */
+#abertura { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: var(--bg); pointer-events: none; animation: ab-sai .3s .64s ease-in forwards; }
+.ab-conj { display: flex; flex-direction: column; align-items: center; animation: ab-sobe .38s .56s cubic-bezier(.55, 0, .25, 1) forwards; }
+#abertura .ab-simbolo { width: 104px; height: 95px; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+#abertura .ab-traco { stroke: #f2ffc4; stroke-dasharray: 1; stroke-dashoffset: 1; filter: drop-shadow(0 0 10px rgba(198, 244, 50, .9)); animation: ab-traca .42s .05s cubic-bezier(.4, 0, .2, 1) forwards; }
+.ab-nome { margin-top: 16px; font-size: 1.3rem; font-weight: 700; letter-spacing: -.03em; opacity: 0; transform: translateY(8px); animation: ab-nome .3s .24s ease-out forwards; }
+@keyframes ab-traca { to { stroke-dashoffset: 0; } }
+@keyframes ab-nome { to { opacity: 1; transform: none; } }
+@keyframes ab-sobe { to { transform: translateY(calc(-50vh + 40px)) scale(.35); opacity: 0; } }
+@keyframes ab-sai { to { opacity: 0; visibility: hidden; } }
+/* A tela inicial entra enquanto a abertura sobe. */
+.abrindo .top, .abrindo main, .abrindo .login-card { animation: ab-entra .4s .6s cubic-bezier(.2, .8, .3, 1) both; }
+.abrindo .dock, .abrindo .fab { animation: ab-entra-o .4s .66s ease-out both; }
+@keyframes ab-entra { from { opacity: 0; transform: translateY(18px); } }
+@keyframes ab-entra-o { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  #abertura { display: none; }
+  .abrindo .top, .abrindo main, .abrindo .login-card, .abrindo .dock, .abrindo .fab { animation: none; }
+}

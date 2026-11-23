@@ -1,0 +1,11 @@
+<!-- Ícone maskable: só a carteira branca e a linha verde, dentro da zona segura (80%), sobre o fundo do app.
+     Gera icons/maskable-192.png e icons/maskable-512.png. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" fill="#07080c"/>
+  <g transform="translate(256 256) scale(.62) translate(-260 -254)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M150 190 305 128l30 60" stroke="#fff" stroke-width="22"/>
+    <rect x="120" y="196" width="280" height="184" rx="44" stroke="#fff" stroke-width="22"/>
+    <path d="M155 355l58-39 37 18 62-76" stroke="#c6f432" stroke-width="20"/>
+    <circle cx="349" cy="293" r="17" fill="#fff"/>
+  </g>
+</svg>

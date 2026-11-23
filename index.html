@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" class="abrindo">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -12,9 +12,24 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon-192.png?v=3">
   <link rel="apple-touch-icon" href="icons/icon-180.png?v=3">
-  <link rel="stylesheet" href="styles.css?v=2.7">
+  <link rel="stylesheet" href="styles.css?v=2.8">
 </head>
 <body>
+  <!-- Abertura: o 1º quadro é igual à tela de abertura do Android (fundo + símbolo no centro). Some sozinha em menos de 1 s. -->
+  <div id="abertura" aria-hidden="true">
+    <div class="ab-conj">
+      <svg class="ab-simbolo" viewBox="100 108 320 292">
+        <path d="M150 190 305 128l30 60" stroke="#fff" stroke-width="22"/>
+        <rect x="120" y="196" width="280" height="184" rx="44" stroke="#fff" stroke-width="22"/>
+        <path d="M155 355l58-39 37 18 62-76" stroke="#c6f432" stroke-width="20"/>
+        <path class="ab-traco" d="M155 355l58-39 37 18 62-76" pathLength="1" stroke-width="20"/>
+        <circle cx="349" cy="293" r="17" fill="#fff" stroke="none"/>
+      </svg>
+      <div class="ab-nome">Minhas Finanças</div>
+    </div>
+  </div>
+  <script>setTimeout(() => { document.documentElement.classList.remove('abrindo'); document.getElementById('abertura')?.remove(); }, 1000);</script>
+
   <div class="bg-art" aria-hidden="true">
     <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div><div class="blob b4"></div>
   </div>
@@ -99,6 +114,6 @@
   <div id="toast" class="toast g hidden"></div>
 
   <!-- Ao publicar uma versão nova, aumente o ?v= aqui e nos imports do app.js. -->
-  <script type="module" src="app.js?v=2.7"></script>
+  <script type="module" src="app.js?v=2.8"></script>
 </body>
 </html>
