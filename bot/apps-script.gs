@@ -3,7 +3,8 @@
 // Configuração: abra a URL do app da Web, cole o token do @BotFather e toque no link de /start.
 
 var PROJETO = 'minhas-financas-1ed86';
-var UID = 'eKcRXnGu6FbpMVUTkHOqMptwDPX2';
+var UID_DONO = 'eKcRXnGu6FbpMVUTkHOqMptwDPX2';
+var UID = UID_DONO; // trocado a cada mensagem para o perfil de quem escreveu
 var BOT_USER = 'violinhabot';
 var PROPS = PropertiesService.getScriptProperties();
 
@@ -220,12 +221,17 @@ function processar(up) {
     var permitido = PROPS.getProperty('ALLOWED_CHAT');
     if (/^\/start/.test(texto)) {
       var cod = texto.split(' ')[1];
+      if (cod && /^v[a-z0-9]{12,}$/.test(cod)) { vincularChat(chat, cod, up.message.from); return; }
       if (!permitido && (!cod || cod === PROPS.getProperty('PAREAMENTO'))) { PROPS.setProperty('ALLOWED_CHAT', String(chat)); permitido = String(chat); }
-      var rr = responder(chat, String(chat) === permitido ? '👋 Bot liberado para você!\n\n' + AJUDA : 'Este bot é particular.');
+      var ok = String(chat) === permitido || !!chatsVinculados()[String(chat)];
+      var rr = responder(chat, ok ? '👋 Bot liberado para você!\n\n' + AJUDA : '🔒 Para usar o bot, abra o app Minhas Finanças → Perfil → <b>Conectar Telegram</b>.');
       console.log('resposta do Telegram: ' + JSON.stringify(rr).slice(0, 200));
       return;
     }
-    if (String(chat) !== permitido) return;
+    var uid = uidDoChat(chat);
+    if (!uid) { if (up.message) responder(chat, '🔒 Para usar o bot, abra o app Minhas Finanças → Perfil → <b>Conectar Telegram</b>.'); return; }
+    UID = uid;
+    if (texto === '/sair') { desvincularChat(chat); return; }
     if (up.callback_query) callback(up.callback_query);
     else if (texto === '/ajuda' || texto === '/help') responder(chat, AJUDA);
     else if (comandoConsulta(chat, texto)) { }
@@ -237,6 +243,48 @@ function processar(up) {
     if (chat) responder(chat, '⚠️ Erro: ' + String(err.message || err).slice(0, 300));
   }
 }
+
+// ---------------- Vários usuários ----------------
+// Cada pessoa conecta o próprio Telegram pelo app (Perfil → Conectar Telegram).
+// O app grava vinculos/{código} = { uid, expira }; o bot liga o chat ao uid e apaga o código.
+function chatsVinculados() { try { return JSON.parse(PROPS.getProperty('CHATS') || '{}'); } catch (e) { return {}; } }
+function uidDoChat(chat) {
+  if (String(chat) === PROPS.getProperty('ALLOWED_CHAT')) return UID_DONO;
+  var v = chatsVinculados()[String(chat)];
+  return v ? v.uid : null;
+}
+function fsRaiz(metodo, caminho, corpo) {
+  var url = 'https://firestore.googleapis.com/v1/projects/' + PROJETO + '/databases/(default)/documents/' + caminho;
+  var op = { method: metodo, muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken(), 'X-Goog-User-Project': PROJETO } };
+  if (corpo) { op.contentType = 'application/json'; op.payload = JSON.stringify(corpo); }
+  var r = UrlFetchApp.fetch(url, op);
+  return { code: r.getResponseCode(), body: r.getContentText() ? JSON.parse(r.getContentText()) : {} };
+}
+function vincularChat(chat, cod, from) {
+  var r = fsRaiz('get', 'vinculos/' + cod);
+  if (r.code === 404) return responder(chat, '⚠️ Código inválido ou já usado. Gere outro no app: Perfil → Conectar Telegram.');
+  if (r.code >= 300) return responder(chat, '⚠️ Erro ao conectar (' + r.code + '). Tente de novo.');
+  var v = deFS(r.body);
+  fsRaiz('delete', 'vinculos/' + cod);
+  if (!v.uid || Number(v.expira || 0) < Date.now()) return responder(chat, '⌛ Código expirou. Gere outro no app: Perfil → Conectar Telegram.');
+  if (String(chat) === PROPS.getProperty('ALLOWED_CHAT') && v.uid !== UID_DONO) return responder(chat, '⚠️ Este Telegram já é o dono do bot e não pode ser ligado a outra conta.');
+  var lock = LockService.getScriptLock(); lock.waitLock(5000);
+  try {
+    var m = chatsVinculados();
+    m[String(chat)] = { uid: v.uid, nome: (from && from.first_name) || '', desde: hojeSP() };
+    PROPS.setProperty('CHATS', JSON.stringify(m));
+  } finally { lock.releaseLock(); }
+  UID = v.uid;
+  try { fsReq('patch', 'config/telegram', paraFS({ conectado: true, desde: hojeSP() })); } catch (e) {}
+  responder(chat, '✅ Telegram conectado ao seu perfil!\n\n' + AJUDA);
+}
+function desvincularChat(chat) {
+  if (String(chat) === PROPS.getProperty('ALLOWED_CHAT')) return responder(chat, 'Você é o dono do bot; não dá para desconectar por aqui.');
+  var m = chatsVinculados(); delete m[String(chat)]; PROPS.setProperty('CHATS', JSON.stringify(m));
+  try { fsReq('patch', 'config/telegram', paraFS({ conectado: false })); } catch (e) {}
+  responder(chat, '👋 Telegram desconectado. Para voltar, use Perfil → Conectar Telegram no app.');
+}
+function listarVinculos() { Logger.log(JSON.stringify(chatsVinculados())); }
 
 // Busca as mensagens novas no Telegram (rodado a cada minuto por um acionador).
 function poll() {
@@ -766,7 +814,7 @@ return {configurar: configurar, ymAtual: ymAtual, contasBancarias: contasBancari
 
 // ================= Consultas e avisos (v2) =================
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-try { AJUDA += '\n\n<b>Consultas</b>\n/saldo · saldo das contas\n/fatura · faturas abertas (/fatura nubank detalha)\n/hoje · quanto posso gastar hoje\n/avisos · vencimentos e alertas'; } catch (e) {}
+try { AJUDA += '\n\n<b>Consultas</b>\n/saldo · saldo das contas\n/fatura · faturas abertas (/fatura nubank detalha)\n/hoje · quanto posso gastar hoje\n/avisos · vencimentos e alertas\n/sair · desconectar este Telegram'; } catch (e) {}
 var COLS_D = ['contas', 'entradas', 'recorrentes', 'carteiras', 'compras', 'faturas', 'transferencias', 'orcamentos', 'config', 'comissoes'];
 
 function carregarD() {
@@ -854,7 +902,7 @@ function textoAvisos() {
   CALC.orcamentosMes(D, ym).forEach(function (o) {
     var faixa = o.pct >= 100 ? 100 : (o.pct >= 80 ? 80 : 0);
     if (!faixa) return;
-    var key = 'ORC_' + ym + '_' + o.categoria;
+    var key = 'ORC_' + UID.slice(0, 8) + '_' + ym + '_' + o.categoria;
     if (Number(P.getProperty(key) || 0) >= faixa) return;
     P.setProperty(key, String(faixa));
     ls.push((faixa === 100 ? '🚨 Estourou' : '⚠️ ' + o.pct + '% do') + ' orçamento de ' + o.categoria + ': ' + brl(o.gasto) + ' de ' + brl(o.limite));
@@ -867,10 +915,16 @@ function textoAvisos() {
 
 // Rodado pelo gatilho diário (8h)
 function avisoDiario() {
-  var chat = PropertiesService.getScriptProperties().getProperty('ALLOWED_CHAT');
-  if (!chat) return;
-  var t = textoAvisos();
-  if (t) responder(chat, t);
+  var alvos = [];
+  var dono = PROPS.getProperty('ALLOWED_CHAT');
+  if (dono) alvos.push([dono, UID_DONO]);
+  var m = chatsVinculados();
+  Object.keys(m).forEach(function (c) { alvos.push([c, m[c].uid]); });
+  alvos.forEach(function (a) {
+    try { UID = a[1]; var t = textoAvisos(); if (t) responder(a[0], t); }
+    catch (e) { console.log('aviso falhou p/ chat ' + a[0] + ': ' + e.message); }
+  });
+  UID = UID_DONO;
 }
 
 function ativarAvisos() {
