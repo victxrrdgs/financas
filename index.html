@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f766e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Finanças">
+  <title>Minhas Finanças</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Tela de login -->
+  <section id="login" class="screen hidden">
+    <div class="login-card">
+      <img src="icons/icon-192.png" alt="" width="72" height="72">
+      <h1>Minhas Finanças</h1>
+      <p>Contas a pagar, contas pagas, entradas e quanto sobra, sincronizado entre seus aparelhos.</p>
+      <button id="btn-login" class="btn primary big">Entrar com Google</button>
+      <p id="login-erro" class="erro"></p>
+    </div>
+  </section>
+
+  <!-- App -->
+  <section id="app" class="screen hidden">
+    <header class="topbar">
+      <button class="icon-btn" id="mes-ant" aria-label="Mês anterior">‹</button>
+      <div class="mes-titulo">
+        <span id="mes-label"></span>
+        <small id="sync-status"></small>
+      </div>
+      <button class="icon-btn" id="mes-prox" aria-label="Próximo mês">›</button>
+      <button class="icon-btn menu-btn" id="btn-menu" aria-label="Menu">⋮</button>
+    </header>
+
+    <div id="menu" class="menu hidden">
+      <div class="menu-user" id="menu-user"></div>
+      <button id="btn-hoje">Ir para o mês atual</button>
+      <button id="btn-recorrentes">Gerenciar recorrências</button>
+      <button id="btn-exportar">Exportar backup (JSON)</button>
+      <button id="btn-sair" class="danger-text">Sair</button>
+    </div>
+
+    <main id="conteudo"></main>
+
+    <button id="fab" class="fab" aria-label="Adicionar">+</button>
+
+    <nav class="tabbar">
+      <button data-tab="resumo" class="active"><span>📊</span>Resumo</button>
+      <button data-tab="apagar"><span>🧾</span>A pagar</button>
+      <button data-tab="pagas"><span>✅</span>Pagas</button>
+      <button data-tab="entradas"><span>💰</span>Entradas</button>
+    </nav>
+  </section>
+
+  <!-- Modal genérico -->
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2 id="modal-titulo"></h2>
+        <button class="icon-btn" id="modal-fechar" aria-label="Fechar">✕</button>
+      </div>
+      <div id="modal-corpo"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
