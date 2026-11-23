@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
@@ -12,7 +12,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="styles.css?v=2.1">
+  <link rel="stylesheet" href="styles.css?v=2.2">
 </head>
 <body>
   <div class="bg-art" aria-hidden="true">
@@ -51,14 +51,17 @@
       <button data-tela="lanc">
         <svg viewBox="0 0 24 24"><path d="M9 6h12M9 12h12M9 18h12"/><circle cx="4" cy="6" r="1.2"/><circle cx="4" cy="12" r="1.2"/><circle cx="4" cy="18" r="1.2"/></svg><span>Contas</span>
       </button>
-      <button id="fab" class="fab" data-a="novo" aria-label="Adicionar">+</button>
       <button data-tela="planejar">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2"/></svg><span>Planejar</span>
       </button>
       <button data-tela="relatorios">
         <svg viewBox="0 0 24 24"><path d="M4 20V11M10 20V5M16 20v-6M21 20H3"/></svg><span>Relatórios</span>
       </button>
+      <button data-tela="conta">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg><span>Perfil</span>
+      </button>
     </nav>
+    <button id="fab" class="fab" data-a="novo" aria-label="Adicionar">+</button>
   </section>
 
   <!-- Bloqueio do app -->
@@ -96,6 +99,6 @@
   <div id="toast" class="toast g hidden"></div>
 
   <!-- Ao publicar uma versão nova, aumente o ?v= aqui e nos imports do app.js. -->
-  <script type="module" src="app.js?v=2.1"></script>
+  <script type="module" src="app.js?v=2.2"></script>
 </body>
 </html>

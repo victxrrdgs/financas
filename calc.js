@@ -221,9 +221,70 @@ export function orcamentosMes(D, ym) {
     .sort((a, b) => b.pct - a.pct);
 }
 
-export function insights(D, ym, fmt) {
+// ---------------- Comissões ----------------
+// Uma venda gera a comissão em 1 ou mais parcelas: cada parcela é recebida no mês em que o cliente paga.
+export function dividir(total, n) {
+  const c = Math.round(Number(total) * 100);
+  const base = Math.floor(c / n);
+  const resto = c - base * n;
+  return Array.from({ length: n }, (_, i) => (base + (i === 0 ? resto : 0)) / 100);
+}
+
+export function parcelasComissao(D, { incluirCanceladas = false } = {}) {
+  const out = [];
+  (D.comissoes || []).forEach((com) => {
+    if (com.cancelada && !incluirCanceladas) return;
+    const ps = com.parcelas || [];
+    ps.forEach((p, i) => out.push({ com, i, n: ps.length, ...p }));
+  });
+  return out;
+}
+
+export function resumoComissoes(D, ym) {
+  const ps = parcelasComissao(D);
+  const pend = ps.filter((p) => !p.recebido);
+  const vendas = (D.comissoes || []).filter((c) => !c.cancelada && noMes(c.dataVenda, ym));
+  return {
+    pendentes: pend,
+    aReceber: soma(pend),
+    previstoMes: soma(pend.filter((p) => noMes(p.data, ym))),
+    atrasadas: pend.filter((p) => diasAte(p.data) < 0),
+    recebidasMes: ps.filter((p) => p.recebido && noMes(p.recebidoEm, ym)),
+    recebidoMes: soma(ps.filter((p) => p.recebido && noMes(p.recebidoEm, ym))),
+    vendasMes: vendas,
+    vendidoMes: r2(vendas.reduce((t, c) => t + (Number(c.valorVenda) || 0), 0)),
+    geradoMes: r2(vendas.reduce((t, c) => t + (c.parcelas || []).reduce((s, p) => s + (Number(p.valor) || 0), 0), 0)),
+  };
+}
+
+export function serieComissoes(D, ym, n = 6) {
+  const ps = parcelasComissao(D).filter((p) => p.recebido);
+  const out = [];
+  for (let k = n - 1; k >= 0; k--) {
+    const m = somarMes(ym, -k);
+    out.push({ ym: m, valor: soma(ps.filter((p) => noMes(p.recebidoEm, m))) });
+  }
+  return out;
+}
+
+export function rankingComissoes(D, campo) {
+  const m = {};
+  (D.comissoes || []).filter((c) => !c.cancelada).forEach((c) => {
+    const k = (c[campo] || '—').trim() || '—';
+    const v = (c.parcelas || []).reduce((s, p) => s + (Number(p.valor) || 0), 0);
+    m[k] = r2((m[k] || 0) + v);
+  });
+  return Object.entries(m).sort((a, b) => b[1] - a[1]);
+}
+
+export function insights(D, ym, fmt, opts = {}) {
   const out = [];
   const r = resumoMes(D, ym);
+  if (opts.comissoes) {
+    const rc = resumoComissoes(D, ym);
+    if (rc.atrasadas.length) out.push({ e: '💼', t: `${rc.atrasadas.length} ${rc.atrasadas.length === 1 ? 'comissão atrasada' : 'comissões atrasadas'} (${fmt(soma(rc.atrasadas))}). Vale cobrar o cliente`, tipo: 'amber' });
+    if (rc.previstoMes > 0) out.push({ e: '💼', t: `${fmt(rc.previstoMes)} em comissões previstas para ${nomeMes(ym).toLowerCase()}`, tipo: 'green' });
+  }
   const plural = (n, s, p) => (n === 1 ? s : p);
   if (r.vencidas.length) out.push({ e: '⚠️', t: `${r.vencidas.length} ${plural(r.vencidas.length, 'conta vencida', 'contas vencidas')} somando ${fmt(soma(r.vencidas))}`, tipo: 'red' });
   const semana = r.abertos.filter((x) => { const d = diasAte(x.data); return d >= 0 && d <= 7; });

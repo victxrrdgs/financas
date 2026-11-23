@@ -90,7 +90,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .menu-status { padding: 10px 18px; font-size: .75rem; color: var(--faint); border-top: 1px solid var(--stroke); }
 .danger-text { color: var(--red) !important; }
 
-main { padding: 4px 16px calc(120px + var(--sb)); max-width: 720px; margin: 0 auto; }
+main { padding: 4px 16px calc(180px + var(--sb)); max-width: 720px; margin: 0 auto; }
 .fade-in { animation: aparece .35s ease-out both; }
 @keyframes aparece { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
@@ -245,7 +245,8 @@ button.card:active { transform: scale(.985); }
 .dock button[data-tela].active { color: var(--text); }
 .dock button[data-tela] svg { width: 23px; height: 23px; }
 .fab {
-  width: 54px; height: 54px; border-radius: 20px; flex-shrink: 0; margin: 0 4px;
+  position: fixed; z-index: 26; right: max(20px, calc(50% - 230px)); bottom: calc(var(--sb) + 104px);
+  width: 58px; height: 58px; border-radius: 20px;
   background: linear-gradient(135deg, #ff7a45, #e11d74 60%, #8b5cf6); color: #fff;
   font-size: 1.9rem; font-weight: 300; line-height: 1; box-shadow: 0 8px 22px rgba(225, 29, 116, .45);
   transition: transform .15s;

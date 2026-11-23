@@ -3,7 +3,7 @@
 import { firebaseConfig } from './firebase-config.js';
 
 const FB = 'https://www.gstatic.com/firebasejs/10.12.2/';
-export const COLECOES = ['contas', 'entradas', 'recorrentes', 'carteiras', 'compras', 'faturas', 'transferencias', 'orcamentos', 'metas', 'config'];
+export const COLECOES = ['contas', 'entradas', 'recorrentes', 'carteiras', 'compras', 'faturas', 'transferencias', 'orcamentos', 'metas', 'config', 'comissoes'];
 
 export const modoLocal = !firebaseConfig || !firebaseConfig.apiKey || new URLSearchParams(location.search).has('local');
 

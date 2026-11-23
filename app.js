@@ -1,8 +1,8 @@
-import { criarStore, modoLocal, COLECOES } from './store.js?v=2.1';
-import * as C from './calc.js?v=2.1';
-import * as L from './lock.js?v=2.1';
+import { criarStore, modoLocal, COLECOES } from './store.js?v=2.2';
+import * as C from './calc.js?v=2.2';
+import * as L from './lock.js?v=2.2';
 
-const VERSAO = '2.1';
+const VERSAO = '2.2';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -23,6 +23,8 @@ let syncStatus = '';
 let configVista = false;
 let apagando = false;
 const prefs = () => D.config.find((x) => x.id === 'prefs') || {};
+const modCom = () => !!prefs().modComissoes;
+let filtroEmpresa = '';
 const salvarPrefs = (mud) => { const { id, ...atual } = prefs(); store.definir('config', 'prefs', { ...atual, ...mud }); };
 let paradas = [];
 const geradosNestaSessao = new Set();
@@ -212,7 +214,20 @@ function telaInicio() {
   const cats = C.gastosPorCategoria(D, ym);
   const gastos = cats.reduce((t, [, v]) => t + v, 0);
   const proximos = [...r.abertos].sort((a, b) => a.data.localeCompare(b.data)).slice(0, 4);
-  const ins = C.insights(D, ym, fmt);
+  const ins = C.insights(D, ym, fmt, { comissoes: modCom() });
+  const rc = modCom() ? C.resumoComissoes(D, ym) : null;
+  const previsao = C.r2(r.previsao + (rc ? rc.previstoMes : 0));
+  const proxCom = rc ? [...rc.pendentes].sort((a, b) => a.data.localeCompare(b.data))[0] : null;
+  const cardCom = rc ? `<button class="card g" data-a="ir-comissoes" style="margin-top:12px">
+      <span class="chev">›</span>
+      <div class="lbl">💼 Comissões a receber</div>
+      <div class="stats" style="margin-top:8px">
+        <div><div class="lbl">Neste mês</div><div class="val pos">${fmt(rc.previstoMes)}</div></div>
+        <div><div class="lbl">Total pendente</div><div class="val">${fmt(rc.aReceber)}</div></div>
+        <div><div class="lbl">Recebido</div><div class="val">${fmt(rc.recebidoMes)}</div></div>
+      </div>
+      ${proxCom ? `<div class="sub" style="margin-top:10px">Próxima: ${esc(proxCom.com.empresa)} · ${C.dataBR(proxCom.data)} · ${fmt(proxCom.valor)}${rc.atrasadas.length ? ` · <span class="neg">${plural(rc.atrasadas.length, 'atrasada', 'atrasadas')}</span>` : ''}</div>` : ''}
+    </button>` : '';
   const hora = new Date().getHours();
   const saud = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite';
 
@@ -228,7 +243,7 @@ function telaInicio() {
     <div class="ola">${saud}, ${esc(nome)}</div>
     <div class="hero-lbl">Sobrou em ${C.nomeMes(ym).toLowerCase()}${faixa} · entrou − pago</div>
     <div class="hero-val ${r.sobra < 0 ? 'neg' : ''}" data-count="${r.sobra}">${fmt(r.sobra)}</div>
-    <div class="hero-sub">Previsão pagando tudo: <b class="${r.previsao < 0 ? 'neg' : ''}">${fmt(r.previsao)}</b></div>
+    <div class="hero-sub">Previsão pagando tudo${rc && rc.previstoMes ? ' e recebendo as comissões' : ''}: <b class="${previsao < 0 ? 'neg' : ''}">${fmt(previsao)}</b></div>
   </section>
 
   <div class="grid2">
@@ -257,6 +272,7 @@ function telaInicio() {
     <div class="barra"><div style="width:${r.pct}%"></div></div>
     <div class="barra-lbl"><span>${r.pct}% das contas pagas</span><span>${r.vencidas.length ? `<span class="neg">${plural(r.vencidas.length, 'vencida', 'vencidas')}</span>` : 'nenhuma vencida'}</span></div>
   </div>
+  ${cardCom}
 
   <div class="sec">
     <div class="sec-h"><h3>Insights</h3></div>
@@ -275,6 +291,8 @@ function telaInicio() {
 // ----- Lançamentos -----
 function telaLanc() {
   const abas = [['apagar', 'A pagar'], ['pagas', 'Pagas'], ['entradas', 'Entradas'], ['cartoes', 'Cartões']];
+  if (modCom()) abas.push(['comissoes', '💼 Comissões']);
+  else if (sub === 'comissoes') sub = 'apagar';
   const pills = `<div class="pills">${abas.map(([k, t]) => `<button class="pill g ${sub === k ? 'active' : ''}" data-a="sub" data-id="${k}">${t}</button>`).join('')}</div>`;
   const r = C.resumoMes(D, ym);
   let corpo = '';
@@ -291,7 +309,7 @@ function telaLanc() {
       ? `<div class="total-linha"><span>${plural(l.length, 'entrada', 'entradas')}</span><span>Total <b>${fmt(C.soma(l))}</b></span></div>
         <div class="list g">${l.map((e) => {
           const cart = e.carteiraId ? carteira(e.carteiraId) : null;
-          return `<div class="row"><div class="ic" style="--c:#4ade80">💰</div>
+          return `<div class="row"><div class="ic" style="--c:${e.comissaoId ? '#fbbf24' : '#4ade80'}">${e.comissaoId ? '💼' : '💰'}</div>
             <div class="info" data-a="editar-entrada" data-id="${e.id}"><div class="t">${esc(e.descricao)}</div>
             <div class="m">${C.dataBR(e.data)}${e.recorrenteId ? ' · 🔁 todo mês' : ''}${cart ? ' · ' + esc(cart.nome) : ''}</div></div>
             <div class="v pos">+ ${fmt(e.valor)}</div></div>`;
@@ -303,10 +321,197 @@ function telaLanc() {
         <div class="info" data-a="editar-transf" data-id="${t.id}"><div class="t">${esc(carteira(t.de)?.nome || '?')} → ${esc(carteira(t.para)?.nome || '?')}</div><div class="m">${C.dataBR(t.data)}</div></div>
         <div class="v">${fmt(t.valor)}</div></div>`).join('')}</div></div>`;
     }
+  } else if (sub === 'comissoes') {
+    corpo = telaComissoes();
   } else {
     corpo = telaCartoes();
   }
   return pills + corpo;
+}
+
+// ----- Comissões -----
+function tagComissao(p) {
+  if (p.com.cancelada) return '<span class="tag red">Venda cancelada</span>';
+  if (p.recebido) return `<span class="tag green">Recebida ${C.dataBR(p.recebidoEm)}</span>`;
+  const d = C.diasAte(p.data);
+  if (d < 0) return `<span class="tag red">Atrasada ${plural(-d, 'dia', 'dias')}</span>`;
+  if (C.noMes(p.data, C.ymAtual())) return '<span class="tag amber">Este mês</span>';
+  return '';
+}
+
+function linhaComissao(p) {
+  return `<div class="row">
+    <div class="ic" style="--c:#fbbf24">💼</div>
+    <div class="info" data-a="editar-comissao" data-id="${p.com.id}">
+      <div class="t">${esc(p.com.empresa)}</div>
+      <div class="m">${esc(p.com.produto || '—')} · ${p.recebido ? 'recebida' : 'prevista'} ${C.dataBR(p.recebido ? p.recebidoEm : p.data)}${p.n > 1 ? ` · ${p.i + 1}/${p.n}` : ''} ${tagComissao(p)}</div>
+    </div>
+    <div class="v ${p.recebido ? 'pos' : ''}">${fmt(p.valor)}</div>
+    <button class="chk ${p.recebido ? 'on' : ''}" data-a="receber" data-id="${p.com.id}" data-i="${p.i}" aria-label="${p.recebido ? 'Desmarcar recebimento' : 'Marcar como recebida'}">✓</button>
+  </div>`;
+}
+
+function telaComissoes() {
+  const rc = C.resumoComissoes(D, ym);
+  const empresas = [...new Set((D.comissoes || []).map((c) => c.empresa).filter(Boolean))].sort();
+  if (filtroEmpresa && !empresas.includes(filtroEmpresa)) filtroEmpresa = '';
+  const filtra = (l) => (filtroEmpresa ? l.filter((p) => p.com.empresa === filtroEmpresa) : l);
+  const pend = filtra([...rc.pendentes]).sort((a, b) => a.data.localeCompare(b.data));
+  const receb = filtra([...rc.recebidasMes]).sort((a, b) => (b.recebidoEm || '').localeCompare(a.recebidoEm || ''));
+  const vendas = rc.vendasMes.filter((c) => !filtroEmpresa || c.empresa === filtroEmpresa);
+  if (!D.comissoes.length) {
+    return `<div class="vazio g"><span class="big">💼</span>Nenhuma venda registrada ainda.<br>
+      <button class="link" data-a="nova-comissao">Registrar uma venda</button></div>`;
+  }
+  return `
+  <div class="card g">
+    <div class="stats">
+      <div><div class="lbl">Previsto em ${C.nomeMes(ym, true).toLowerCase()}</div><div class="val warn">${fmt(rc.previstoMes)}</div></div>
+      <div><div class="lbl">Recebido</div><div class="val pos">${fmt(rc.recebidoMes)}</div></div>
+      <div><div class="lbl">Total pendente</div><div class="val">${fmt(rc.aReceber)}</div></div>
+    </div>
+    <div class="barra-lbl" style="margin-top:12px"><span>Vendido em ${C.nomeMes(ym).toLowerCase()}: <b style="color:var(--text)">${fmt(rc.vendidoMes)}</b></span><span>comissão ${fmt(rc.geradoMes)}</span></div>
+  </div>
+  ${empresas.length > 1 ? `<form id="f-filtro" style="margin-top:12px"><select name="emp" data-filtro-emp>
+      <option value="">Todas as empresas</option>${empresas.map((e) => `<option ${e === filtroEmpresa ? 'selected' : ''}>${esc(e)}</option>`).join('')}
+    </select></form>` : ''}
+  <div class="sec">
+    <div class="sec-h"><h3>A receber</h3><button data-a="nova-comissao">+ Venda</button></div>
+    ${pend.length ? `<div class="list g">${pend.map(linhaComissao).join('')}</div>` : '<div class="vazio g">Nada pendente 🎉</div>'}
+  </div>
+  <div class="sec">
+    <div class="sec-h"><h3>Recebidas em ${C.nomeMes(ym).toLowerCase()}</h3></div>
+    ${receb.length ? `<div class="list g">${receb.map(linhaComissao).join('')}</div>` : '<div class="vazio g">Nenhuma comissão recebida neste mês.</div>'}
+  </div>
+  ${vendas.length ? `<div class="sec"><div class="sec-h"><h3>Vendas fechadas em ${C.nomeMes(ym).toLowerCase()}</h3></div><div class="list g">
+    ${vendas.map((c) => `<div class="row clic" data-a="editar-comissao" data-id="${c.id}"><div class="ic" style="--c:#60a5fa">🤝</div>
+      <div class="info"><div class="t">${esc(c.empresa)}</div><div class="m">${esc(c.produto || '—')} · ${C.dataBR(c.dataVenda)} · ${String(c.percentual).replace('.', ',')}%</div></div>
+      <div style="text-align:right"><div class="v">${fmt(c.valorVenda)}</div><div class="m" style="color:var(--muted);font-size:.74rem">comissão ${fmt(C.soma(c.parcelas || []))}</div></div></div>`).join('')}
+  </div></div>` : ''}`;
+}
+
+function receberComissao(id, i) {
+  const com = D.comissoes.find((c) => c.id === id); if (!com) return;
+  const ps = (com.parcelas || []).map((p) => ({ ...p }));
+  const p = ps[i]; if (!p) return;
+  const entradaId = `com-${id}-${i}`;
+  const n = ps.length;
+  if (p.recebido) {
+    Object.assign(p, { recebido: false, recebidoEm: null, carteiraId: null });
+    store.remover('entradas', entradaId);
+    toast('Comissão voltou para "a receber"');
+  } else {
+    const carteiraId = carteiraPadrao();
+    Object.assign(p, { recebido: true, recebidoEm: C.hojeISO(), carteiraId });
+    store.definir('entradas', entradaId, {
+      descricao: `Comissão · ${com.empresa}${n > 1 ? ` (${i + 1}/${n})` : ''}`, valor: p.valor, data: C.hojeISO(), carteiraId, comissaoId: id,
+    });
+    toast(`💼 Comissão de ${fmt(p.valor)} recebida`);
+  }
+  store.atualizar('comissoes', id, { parcelas: ps });
+}
+
+// Datas previstas dos pagamentos do cliente: mesmo dia, mês a mês, a partir do 1º.
+const datasParcelas = (d1, n) => Array.from({ length: n }, (_, i) => (i === 0 ? d1 : C.diaNoMes(C.somarMes(d1.slice(0, 7), i), Number(d1.slice(8, 10)))));
+
+function formComissao(com) {
+  const novo = !com;
+  const pctPadrao = Number(prefs().percentualComissao) || 1;
+  com = com || { empresa: '', produto: '', dataVenda: C.hojeISO(), valorVenda: null, percentual: pctPadrao, parcelas: [], cancelada: false, obs: '' };
+  const ps = com.parcelas || [];
+  const totalCom = ps.length ? C.soma(ps) : null;
+  const recebidas = ps.filter((p) => p.recebido).length;
+  const empresas = [...new Set(D.comissoes.map((c) => c.empresa).filter(Boolean))];
+  const produtos = [...new Set(D.comissoes.map((c) => c.produto).filter(Boolean))];
+  const num = (v) => (v || v === 0 ? Number(v).toFixed(2).replace('.', ',') : '');
+  abrirModal(novo ? 'Nova venda' : 'Editar venda', `<form id="f">
+    ${campoValor(com.valorVenda, 'Valor da venda')}
+    <div class="linha">
+      <div><label>Empresa (cliente)</label><input name="empresa" list="dl-emp" required maxlength="60" placeholder="Quem comprou" value="${esc(com.empresa)}"></div>
+      <div><label>Produto</label><input name="produto" list="dl-prod" maxlength="60" placeholder="O que foi vendido" value="${esc(com.produto)}"></div>
+    </div>
+    <datalist id="dl-emp">${empresas.map((e) => `<option value="${esc(e)}">`).join('')}</datalist>
+    <datalist id="dl-prod">${produtos.map((e) => `<option value="${esc(e)}">`).join('')}</datalist>
+    <div class="linha">
+      <div><label>Data da venda</label><input name="dataVenda" type="date" required value="${com.dataVenda}"></div>
+      <div><label>Comissão (%)</label><input name="percentual" inputmode="decimal" required value="${String(com.percentual ?? pctPadrao).replace('.', ',')}"></div>
+    </div>
+    <div class="linha">
+      <div><label>Cliente paga em</label><select name="n">${Array.from({ length: 24 }, (_, i) => `<option value="${i + 1}" ${i + 1 === (ps.length || 1) ? 'selected' : ''}>${i === 0 ? '1 pagamento' : `${i + 1} parcelas`}</option>`).join('')}</select></div>
+      <div><label>${'1º pagamento do cliente'}</label><input name="data1" type="date" required value="${ps[0]?.data || com.dataVenda}"></div>
+    </div>
+    <label>Comissão total (calculada, pode ajustar)</label><input name="comissao" inputmode="decimal" placeholder="0,00" value="${num(totalCom)}">
+    <div class="aviso" id="prev-com"></div>
+    <label>Observação</label><input name="obs" maxlength="120" placeholder="Opcional: nº do pedido, contato…" value="${esc(com.obs || '')}">
+    ${novo ? '' : `<label class="chk-l"><input type="checkbox" name="cancelada" ${com.cancelada ? 'checked' : ''}> Venda cancelada</label>`}
+    ${recebidas ? `<div class="aviso">${plural(recebidas, 'parcela já recebida', 'parcelas já recebidas')}: o recebimento fica mantido.</div>` : ''}
+    ${botoes(!novo)}
+  </form>`);
+  const form = $('#f');
+  let comissaoEditada = !novo && totalCom !== null && Math.abs(totalCom - C.r2((com.valorVenda * com.percentual) / 100)) > 0.009;
+  const calcular = (ev) => {
+    const f = new FormData(form);
+    if (ev && ev.target.name === 'comissao') comissaoEditada = true;
+    const venda = C.parseValor(f.get('valor'));
+    const pct = C.parseValor(f.get('percentual'));
+    if (!comissaoEditada && venda > 0 && pct >= 0) form.comissao.value = num(C.r2((venda * pct) / 100));
+    const total = C.parseValor(form.comissao.value);
+    const n = Number(f.get('n')); const d1 = f.get('data1');
+    if (!(total > 0) || !d1) { $('#prev-com').textContent = 'Informe o valor da venda para calcular a comissão.'; return; }
+    const partes = C.dividir(total, n);
+    const meses = datasParcelas(d1, n).map((d) => C.rotuloMes(C.mesDe(d)).toLowerCase());
+    $('#prev-com').innerHTML = n === 1
+      ? `Você recebe <b>${fmt(total)}</b> em <b>${meses[0]}</b>, quando o cliente pagar.`
+      : `${n} parcelas de <b>${fmt(partes[n - 1])}</b> de comissão, de <b>${meses[0]}</b> a <b>${meses[n - 1]}</b>.`;
+  };
+  form.addEventListener('input', calcular); calcular();
+  form.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const f = new FormData(form);
+    const valorVenda = lerValor(f); if (valorVenda === null) return;
+    const percentual = C.parseValor(f.get('percentual'));
+    if (!(percentual >= 0 && percentual <= 100)) { toast('Percentual inválido'); return; }
+    const total = C.parseValor(form.comissao.value);
+    if (!(total > 0)) { toast('Informe a comissão'); return; }
+    const n = Number(f.get('n')); const d1 = f.get('data1');
+    const partes = C.dividir(total, n);
+    const datas = datasParcelas(d1, n);
+    const novas = partes.map((valor, i) => {
+      const antiga = ps[i] || {};
+      const data = datas[i];
+      return { data, valor, valorVenda: C.dividir(valorVenda, n)[i], recebido: !!antiga.recebido, recebidoEm: antiga.recebidoEm || null, carteiraId: antiga.carteiraId || null };
+    });
+    // Parcelas que deixaram de existir: remove a entrada, se tinham sido recebidas.
+    ps.slice(n).forEach((p, k) => { if (p.recebido) store.remover('entradas', `com-${com.id}-${n + k}`); });
+    const dados = {
+      empresa: f.get('empresa').trim(), produto: f.get('produto').trim(), dataVenda: f.get('dataVenda'),
+      valorVenda, percentual, parcelas: novas, cancelada: f.get('cancelada') === 'on', obs: f.get('obs').trim(),
+    };
+    if (novo) store.adicionar('comissoes', dados);
+    else {
+      store.definir('comissoes', com.id, dados);
+      // Mantém as entradas já criadas com o valor atualizado.
+      novas.forEach((p, i) => { if (p.recebido) store.atualizar('entradas', `com-${com.id}-${i}`, { valor: p.valor, descricao: `Comissão · ${dados.empresa}${n > 1 ? ` (${i + 1}/${n})` : ''}` }); });
+    }
+    fecharModal(); toast(novo ? '💼 Venda registrada' : 'Venda atualizada');
+  });
+  ligarExcluir(() => {
+    ps.forEach((p, i) => { if (p.recebido) store.remover('entradas', `com-${com.id}-${i}`); });
+    store.remover('comissoes', com.id);
+  });
+}
+
+function configPercentual() {
+  abrirModal('Comissão padrão', `<form id="f">
+    <label>Percentual sugerido em novas vendas</label><input name="p" inputmode="decimal" required value="${String(Number(prefs().percentualComissao) || 1).replace('.', ',')}">
+    <div class="aviso">Você ainda pode mudar o percentual em cada venda.</div>
+    <div class="acoes"><button class="btn primary">Salvar</button></div></form>`);
+  $('#f').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const p = C.parseValor(new FormData(ev.target).get('p'));
+    if (!(p >= 0 && p <= 100)) { toast('Percentual inválido'); return; }
+    salvarPrefs({ percentualComissao: p }); fecharModal(); toast('Salvo');
+  });
 }
 
 function telaCartoes() {
@@ -439,7 +644,29 @@ function telaRelatorios() {
   <div class="card g" style="margin-top:12px"><div class="lbl">Para onde foi o dinheiro</div><div class="val">${C.nomeMes(ym)}</div>${donut}</div>
   <div class="card g"><div class="lbl">Últimos 6 meses</div><div class="val ${media < 0 ? 'neg' : 'pos'}">${fmt(media)}<span style="font-size:.8rem;color:var(--muted);font-weight:500"> sobra média/mês</span></div>${bars}</div>
   <div class="card g cmp"><div class="lbl">Comparado a ${C.nomeMes(C.somarMes(ym, -1)).toLowerCase()}</div>${cmp}</div>
+  ${modCom() ? relatorioComissoes() : ''}
   <div class="sec">${heatmap()}</div>`;
+}
+
+function relatorioComissoes() {
+  const serie = C.serieComissoes(D, ym, 6);
+  const max = Math.max(1, ...serie.map((s) => s.valor));
+  const total = serie.reduce((t, s) => t + s.valor, 0);
+  const rank = (campo, icone) => {
+    const l = C.rankingComissoes(D, campo).slice(0, 5);
+    if (!l.length) return '<div class="sub">Sem vendas ainda.</div>';
+    const top = l[0][1] || 1;
+    return l.map(([k, v]) => `<div class="cat" style="padding:10px 0;border:0">
+      <div class="cat-top" style="display:flex;justify-content:space-between;font-size:.88rem"><span>${icone} ${esc(k)}</span><b>${fmt(v)}</b></div>
+      <div class="barra" style="margin-top:6px;height:6px"><div style="width:${Math.round((v / top) * 100)}%;background:linear-gradient(90deg,#fbbf24,#ff7a45)"></div></div></div>`).join('');
+  };
+  return `
+  <div class="card g"><div class="lbl">💼 Comissões recebidas · 6 meses</div><div class="val pos">${fmt(total)}</div>
+    <div class="bars">${serie.map((s) => `<div class="col ${s.ym === ym ? 'atual' : ''}"><div class="pair">
+      <i style="width:55%;max-width:26px;height:${(s.valor / max) * 100}%;background:linear-gradient(180deg,#fbbf24,#ff7a45)" title="${fmt(s.valor)}"></i></div>
+      <span>${C.nomeMes(s.ym, true)}</span></div>`).join('')}</div></div>
+  <div class="card g"><div class="lbl">Comissão por empresa</div>${rank('empresa', '🏢')}</div>
+  <div class="card g"><div class="lbl">Comissão por produto</div>${rank('produto', '📦')}</div>`;
 }
 
 // ---------------- Modais ----------------
@@ -489,6 +716,7 @@ function menuNovo() {
     <button data-a="nova-entrada"><span>💰</span><b>Entrada</b><small>Salário, Pix recebido…</small></button>
     <button data-a="nova-compra"><span>💳</span><b>Compra no cartão</b><small>À vista ou parcelada</small></button>
     <button data-a="nova-transf"><span>🔁</span><b>Transferência</b><small>Entre suas contas</small></button>
+    ${modCom() ? '<button data-a="nova-comissao" style="grid-column:1/-1"><span>💼</span><b>Venda / comissão</b><small>Registrar uma venda fechada</small></button>' : ''}
   </div>`);
 }
 
@@ -848,6 +1076,11 @@ function telaConta() {
     ${linhaConta('recorrencias', '🔁', '#818cf8', 'Recorrências', seta(String(D.recorrentes.filter((r) => !r.fim || r.fim >= C.ymAtual()).length)))}
   </div></div>
 
+  <div class="sec"><div class="sec-h"><h3>Módulos</h3></div><div class="list g">
+    ${linhaConta('cfg-mod-comissoes', '💼', '#fbbf24', 'Comissões de vendas', `<span class="sw ${modCom() ? 'on' : ''}"></span>`)}
+    ${modCom() ? linhaConta('cfg-percentual', '％', '#fbbf24', 'Comissão padrão', seta(`${String(Number(p.percentualComissao) || 1).replace('.', ',')}%`)) : ''}
+  </div></div>
+
   <div class="sec"><div class="sec-h"><h3>Seus dados</h3></div><div class="list g">
     ${linhaConta('exportar-csv', '📊', '#4ade80', 'Exportar planilha (Excel)')}
     ${linhaConta('exportar', '💾', '#60a5fa', 'Exportar backup completo')}
@@ -1054,6 +1287,11 @@ function exportarCSV() {
   C.vis(D.entradas).forEach((e) => linhas.push([e.data, 'Entrada', e.descricao, '', num(e.valor), 'Recebida', nomeC(e.carteiraId), '']));
   D.compras.forEach((p) => linhas.push([p.data, 'Compra no cartão', p.descricao, p.categoria || 'Outros', num(-p.valor), '', nomeC(p.carteiraId), p.parcelas > 1 ? `${p.parcelas}x` : 'À vista']));
   D.transferencias.forEach((t) => linhas.push([t.data, 'Transferência', `${nomeC(t.de)} → ${nomeC(t.para)}`, '', num(t.valor), '', '', '']));
+  // Comissões (uma linha por parcela). Parcelas recebidas também aparecem como "Entrada".
+  C.parcelasComissao(D, { incluirCanceladas: true }).forEach((p) => linhas.push([
+    p.data, 'Comissão', `${p.com.empresa}${p.com.produto ? ' — ' + p.com.produto : ''} (venda ${dBR(p.com.dataVenda)}: ${num(p.com.valorVenda)})`, '', num(p.valor),
+    p.com.cancelada ? 'Venda cancelada' : p.recebido ? `Recebida em ${dBR(p.recebidoEm)}` : 'A receber', nomeC(p.carteiraId), p.n > 1 ? `${p.i + 1}/${p.n}` : '',
+  ]));
   linhas.sort((a, b) => a[0].localeCompare(b[0]));
   const cab = ['Data', 'Tipo', 'Descrição', 'Categoria', 'Valor (R$)', 'Situação', 'Conta/Cartão', 'Parcelas'];
   const cel = (s) => (/[;"\n]/.test(String(s)) ? `"${String(s).replace(/"/g, '""')}"` : String(s));
@@ -1141,6 +1379,16 @@ const ACOES = {
     const on = localStorage.getItem('fin-ocultar-abrir') !== '1';
     localStorage.setItem('fin-ocultar-abrir', on ? '1' : '0'); render();
   },
+  'cfg-mod-comissoes': () => {
+    const on = !modCom();
+    salvarPrefs({ modComissoes: on });
+    toast(on ? '💼 Módulo de comissões ativado. Veja em Contas → Comissões' : 'Módulo de comissões desligado (seus dados continuam salvos)');
+  },
+  'cfg-percentual': () => configPercentual(),
+  'nova-comissao': () => formComissao(),
+  'editar-comissao': (id) => { const x = D.comissoes.find((c) => c.id === id); if (x) formComissao(x); },
+  receber: (id, el) => receberComissao(id, Number(el.dataset.i)),
+  'ir-comissoes': () => { sub = 'comissoes'; trocarTela('lanc'); },
   'cfg-apelido': () => configApelido(),
   'cfg-inicio': () => configInicio(),
   'cfg-categorias': () => configCategorias(),
@@ -1184,6 +1432,9 @@ function ligarEventos() {
     if (fn) { e.preventDefault(); fn(el.dataset.id, el); }
   });
   $$('.dock [data-tela]').forEach((b) => b.addEventListener('click', () => trocarTela(b.dataset.tela)));
+  document.addEventListener('change', (e) => {
+    if (e.target.matches('[data-filtro-emp]')) { filtroEmpresa = e.target.value; render(); }
+  });
   $('#mes-ant').addEventListener('click', () => mudarMes(-1));
   $('#mes-prox').addEventListener('click', () => mudarMes(1));
   $('#btn-olho').addEventListener('click', () => {
