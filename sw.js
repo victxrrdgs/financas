@@ -1,7 +1,7 @@
 // Service worker: guarda os arquivos do app para abrir rápido e offline.
 // Os dados ficam no cache offline do próprio Firestore.
 const V = '2.1';
-const CACHE = 'financas-' + V;
+const CACHE = 'financas-' + V + '-b';
 const ARQUIVOS = ['./', 'index.html', `styles.css?v=${V}`, `app.js?v=${V}`, `store.js?v=${V}`, `calc.js?v=${V}`, `lock.js?v=${V}`, 'firebase-config.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
@@ -13,11 +13,13 @@ self.addEventListener('activate', (e) => {
 });
 
 // Rede primeiro (para receber atualizações), cache se estiver offline.
+// cache: 'no-cache' faz o navegador sempre conferir com o servidor se há versão nova,
+// evitando misturar arquivos novos com antigos guardados no cache HTTP.
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: 'no-cache' })
       .then((r) => { const copia = r.clone(); caches.open(CACHE).then((c) => c.put(e.request, copia)); return r; })
       .catch(() => caches.match(e.request).then((r) => r || caches.match('index.html')))
   );
