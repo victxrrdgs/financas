@@ -1,8 +1,8 @@
-import { criarStore, modoLocal, COLECOES } from './store.js?v=2.2';
-import * as C from './calc.js?v=2.2';
-import * as L from './lock.js?v=2.2';
+import { criarStore, modoLocal, COLECOES } from './store.js?v=2.3';
+import * as C from './calc.js?v=2.3';
+import * as L from './lock.js?v=2.3';
 
-const VERSAO = '2.2';
+const VERSAO = '2.3';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -251,7 +251,7 @@ function telaInicio() {
       <span class="chev">›</span>
       <div class="card-top"><div class="dots">${dots}</div></div>
       <div class="lbl">Saldo em contas</div>
-      <div class="val">${bancos.length ? fmt(C.saldoTotal(D)) : '—'}</div>
+      <div class="val ${C.saldoTotal(D) < 0 ? 'neg' : ''}">${bancos.length ? fmt(C.saldoTotal(D)) : '—'}</div>
       <div class="sub">${bancos.length ? plural(bancos.length, 'carteira', 'carteiras') : 'Adicione suas contas'}</div>
     </button>
     <button class="card g" data-a="ir" data-id="relatorios">
@@ -903,8 +903,13 @@ function formCarteira(c, tipoPadrao) {
     <label>Cor</label>
     <div class="cores">${C.CORES.map((k) => `<label style="background:${k}"><input type="radio" name="cor" value="${k}" ${c.cor === k ? 'checked' : ''}></label>`).join('')}</div>
     <div id="campos-conta">
-      <label>Saldo inicial</label><input name="saldoInicial" inputmode="decimal" placeholder="0,00" value="${Number(c.saldoInicial || 0).toFixed(2).replace('.', ',')}">
-      <div class="aviso">Quanto havia nesta conta ao começar a usar o app. Entradas, contas pagas e transferências ligadas a ela atualizam o saldo.</div>
+      <label>Saldo inicial</label>
+      <div class="seg" style="margin-bottom:8px">
+        <label><input type="radio" name="sinal" value="1" ${Number(c.saldoInicial || 0) >= 0 ? 'checked' : ''}>➕ Positivo</label>
+        <label><input type="radio" name="sinal" value="-1" ${Number(c.saldoInicial || 0) < 0 ? 'checked' : ''}>➖ Negativo (devendo)</label>
+      </div>
+      <input name="saldoInicial" inputmode="decimal" placeholder="0,00" value="${Math.abs(Number(c.saldoInicial || 0)).toFixed(2).replace('.', ',')}">
+      <div class="aviso">Quanto havia nesta conta ao começar a usar o app. Use <b>Negativo</b> se a conta está no cheque especial ou com saldo devedor. Entradas, contas pagas e transferências ligadas a ela atualizam o saldo, que também pode ficar negativo.</div>
     </div>
     <div id="campos-cartao">
       <label>Limite (opcional)</label><input name="limite" inputmode="decimal" placeholder="0,00" value="${c.limite ? Number(c.limite).toFixed(2).replace('.', ',') : ''}">
@@ -932,7 +937,9 @@ function formCarteira(c, tipoPadrao) {
       if (!(fe >= 1 && fe <= 31 && ve >= 1 && ve <= 31)) { toast('Dias de fechamento e vencimento entre 1 e 31'); return; }
       Object.assign(dados, { limite: C.parseValor(f.get('limite')) || 0, fechamento: fe, vencimento: ve });
     } else {
-      dados.saldoInicial = C.parseValor(f.get('saldoInicial')) || 0;
+      // Aceita o sinal pelo seletor ou digitado ("-1.200,00").
+      const v = C.parseValor(f.get('saldoInicial')) || 0;
+      dados.saldoInicial = C.r2(Math.abs(v) * (v < 0 || f.get('sinal') === '-1' ? -1 : 1));
     }
     if (novo) store.adicionar('carteiras', dados); else store.definir('carteiras', c.id, dados);
     fecharModal(); toast(novo ? 'Carteira criada' : 'Carteira atualizada');
