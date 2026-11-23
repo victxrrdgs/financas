@@ -1,9 +1,9 @@
-import { criarStore, modoLocal, COLECOES } from './store.js?v=2.6';
-import * as C from './calc.js?v=2.6';
-import * as P from './planos.js?v=2.6';
-import * as L from './lock.js?v=2.6';
+import { criarStore, modoLocal, COLECOES } from './store.js?v=2.7';
+import * as C from './calc.js?v=2.7';
+import * as P from './planos.js?v=2.7';
+import * as L from './lock.js?v=2.7';
 
-const VERSAO = '2.6';
+const VERSAO = '2.7';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -1213,6 +1213,7 @@ function telaConta() {
   <div class="sec"><div class="sec-h"><h3>Módulos</h3></div><div class="list g">
     ${linhaConta('cfg-mod-comissoes', '💼', '#fbbf24', 'Comissões de vendas', `<span class="sw ${modCom() ? 'on' : ''}"></span>`)}
     ${modCom() ? linhaConta('cfg-percentual', '％', '#fbbf24', 'Comissão padrão', seta(`${String(Number(p.percentualComissao) || 1).replace('.', ',')}%`)) : ''}
+    ${linhaConta('cfg-telegram', '✈️', '#38bdf8', 'Bot do Telegram', seta((D.config.find((x) => x.id === 'telegram') || {}).conectado ? 'Conectado' : 'Conectar'))}
   </div></div>
 
   <div class="sec"><div class="sec-h"><h3>Seus dados</h3></div><div class="list g">
@@ -1228,6 +1229,33 @@ function telaConta() {
   </div></div>
 
   <div class="rodape">Minhas Finanças · versão ${VERSAO}<br>${esc(syncStatus)}</div>`;
+}
+
+function configTelegram() {
+  const tg = D.config.find((x) => x.id === 'telegram') || {};
+  abrirModal('Bot do Telegram', `
+    <div class="aviso" style="margin-top:4px">Lance gastos escrevendo no Telegram (ex.: <b>50 mercado nubank</b>), mande foto de comprovante e consulte saldo e faturas com <b>/saldo</b>, <b>/fatura</b> e <b>/hoje</b>. Tudo cai no <b>seu</b> perfil.</div>
+    ${tg.conectado ? `<div class="aviso">✅ Conectado desde ${C.dataBR(tg.desde || '')}. Para desconectar, mande <b>/sair</b> no bot.</div>` : ''}
+    <div class="aviso" style="opacity:.8">O bot roda na conta Google do dono do app, que tem acesso técnico ao banco de dados.</div>
+    <div class="acoes"><button class="btn primary" id="tg-ir">${tg.conectado ? 'Conectar de novo' : 'Conectar Telegram'}</button></div>
+    <div class="aviso" id="tg-st" style="display:none"></div>`);
+  $('#tg-ir').addEventListener('click', async (ev) => {
+    const b = ev.currentTarget; b.disabled = true; b.textContent = 'Gerando código…';
+    // Abre a janela já no clique (o navegador bloqueia popups abertos depois de um await).
+    const w = window.open('', '_blank');
+    try {
+      const cod = await store.criarVinculo();
+      const url = `https://t.me/violinhabot?start=${cod}`;
+      if (w) w.location.href = url; else location.href = url;
+      const st = $('#tg-st'); st.style.display = '';
+      st.innerHTML = `No Telegram, toque em <b>Iniciar</b>. O bot responde em até 1 minuto.<br>Não abriu? <a href="${url}" target="_blank" rel="noopener">Abrir @violinhabot</a> (código vale 10 min).`;
+      b.textContent = 'Código gerado';
+    } catch (e) {
+      if (w) w.close();
+      b.disabled = false; b.textContent = 'Conectar Telegram';
+      toast('Não deu para gerar o código: ' + (e.message || e));
+    }
+  });
 }
 
 function configApelido() {
@@ -1850,6 +1878,7 @@ const ACOES = {
   receber: (id, el) => receberComissao(id, Number(el.dataset.i)),
   'ir-comissoes': () => { sub = 'comissoes'; trocarTela('lanc'); },
   'cfg-apelido': () => configApelido(),
+  'cfg-telegram': () => configTelegram(),
   'cfg-inicio': () => configInicio(),
   'cfg-categorias': () => configCategorias(),
   ir: (id) => trocarTela(id),

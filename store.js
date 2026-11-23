@@ -33,6 +33,7 @@ function criarStoreLocal() {
     async definir(col, id, dados) { const d = ler(); d[col][id] = dados; gravar(d); },
     async atualizar(col, id, dados) { const d = ler(); d[col][id] = { ...d[col][id], ...dados }; gravar(d); },
     async remover(col, id) { const d = ler(); delete d[col][id]; gravar(d); },
+    async criarVinculo() { throw new Error('Conectar Telegram não funciona no modo local.'); },
     async exportarTudo() { return ler(); },
     async apagarTudo() { gravar(vazio()); },
     async excluirConta() { localStorage.removeItem(KEY); localStorage.removeItem(KEY + '-logado'); onAuth(null); },
@@ -90,6 +91,13 @@ async function criarStoreFirebase() {
     async definir(c, id, dados) { fs.setDoc(fs.doc(col(c), id), dados); },
     async atualizar(c, id, dados) { fs.updateDoc(fs.doc(col(c), id), dados); },
     async remover(c, id) { fs.deleteDoc(fs.doc(col(c), id)); },
+    // Código de uso único para ligar o Telegram a esta conta (o bot lê e apaga).
+    async criarVinculo() {
+      const b = new Uint8Array(12); crypto.getRandomValues(b);
+      const cod = 'v' + Array.from(b, (x) => (x % 36).toString(36)).join('');
+      await fs.setDoc(fs.doc(db, 'vinculos', cod), { uid, expira: Date.now() + 10 * 60 * 1000 });
+      return cod;
+    },
     async exportarTudo() {
       const out = {};
       for (const c of COLECOES) out[c] = mapear(await fs.getDocs(col(c)));

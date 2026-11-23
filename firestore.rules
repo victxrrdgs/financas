@@ -7,6 +7,15 @@ service cloud.firestore {
         && colecao in ['contas', 'entradas', 'recorrentes', 'carteiras', 'compras',
                        'faturas', 'transferencias', 'orcamentos', 'metas', 'config', 'comissoes'];
     }
+    // Código para conectar o Telegram: cada um só cria código para a própria conta,
+    // com validade curta. Ninguém lê pelo app; só o bot (conta do dono) lê e apaga.
+    match /vinculos/{cod} {
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasOnly(['uid', 'expira'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.expira is int
+        && request.resource.data.expira <= request.time.toMillis() + 900000;
+    }
     // Todo o resto fica bloqueado.
     match /{document=**} {
       allow read, write: if false;
