@@ -73,6 +73,8 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .top.scrolled { background: rgba(7, 8, 12, .55); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); }
 .avatar { width: 42px; height: 42px; border-radius: 50%; overflow: hidden; flex-shrink: 0; background: linear-gradient(135deg, #ff6b35, #7c3aed); font-weight: 700; display: grid; place-items: center; border: 1px solid var(--stroke-hi); }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
+.avatar.ativo { box-shadow: 0 0 0 2px #fff; }
+#mes-label { cursor: pointer; }
 .mes-pill { flex: 1; display: flex; align-items: center; justify-content: space-between; border-radius: 99px; height: 42px; padding: 0 4px; max-width: 260px; margin: 0 auto; }
 .mes-pill button { width: 36px; height: 36px; border-radius: 50%; font-size: 1.35rem; color: var(--muted); }
 .mes-pill button:active { background: var(--glass-hi); }
@@ -297,5 +299,41 @@ form select option { background: #1c1c22; }
 .acao-grid button span { font-size: 1.6rem; }
 .acao-grid button b { font-weight: 600; font-size: .92rem; }
 .acao-grid button small { color: var(--muted); font-size: .74rem; margin-top: -6px; }
+
+/* ---------- Conta ---------- */
+.perfil { display: flex; align-items: center; gap: 16px; margin-top: 12px; }
+.perfil .avatar { width: 64px; height: 64px; font-size: 1.5rem; }
+.perfil .nome { font-size: 1.2rem; font-weight: 650; letter-spacing: -.02em; }
+.perfil .mail { color: var(--muted); font-size: .85rem; margin-top: 2px; word-break: break-all; }
+.perfil .via { display: inline-flex; gap: 6px; align-items: center; margin-top: 8px; font-size: .72rem; color: var(--muted); background: rgba(255, 255, 255, .07); padding: 4px 10px; border-radius: 99px; }
+.row.clic { cursor: pointer; }
+.row.clic:active { background: rgba(255, 255, 255, .04); }
+.row .seta { color: var(--faint); font-size: 1.1rem; }
+.row .val-d { color: var(--muted); font-size: .85rem; white-space: nowrap; }
+.row.perigo .t { color: var(--red); }
+.sw { width: 50px; height: 30px; border-radius: 99px; background: rgba(255, 255, 255, .14); position: relative; flex-shrink: 0; transition: background .2s; }
+.sw::after { content: ''; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; transition: transform .2s; box-shadow: 0 2px 6px rgba(0, 0, 0, .3); }
+.sw.on { background: var(--green); }
+.sw.on::after { transform: translateX(20px); }
+.rodape { text-align: center; color: var(--faint); font-size: .75rem; margin-top: 26px; line-height: 1.6; }
+.pin-in { letter-spacing: .6em; text-align: center; font-size: 1.6rem !important; }
+
+/* ---------- Bloqueio ---------- */
+body.travado #app, body.travado #modal { display: none !important; }
+#lock { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(7, 8, 12, .35); -webkit-backdrop-filter: blur(30px); backdrop-filter: blur(30px); }
+.lock-box { width: 100%; max-width: 320px; text-align: center; }
+.lock-box h2 { margin: 16px 0 4px; font-size: 1.3rem; }
+.lock-box p { color: var(--muted); margin: 0 0 18px; min-height: 1.3em; }
+.pin-dots { display: flex; gap: 14px; justify-content: center; margin-bottom: 28px; }
+.pin-dots i { width: 13px; height: 13px; border-radius: 50%; border: 1.5px solid rgba(255, 255, 255, .5); transition: background .15s; }
+.pin-dots i.on { background: #fff; border-color: #fff; }
+.pin-dots.erro { animation: treme .4s; }
+@keyframes treme { 20%, 60% { transform: translateX(-10px); } 40%, 80% { transform: translateX(10px); } }
+.pinpad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px 22px; justify-items: center; }
+.pinpad button { width: 72px; height: 72px; border-radius: 50%; font-size: 1.7rem; font-weight: 400; background: rgba(255, 255, 255, .09); border: 1px solid var(--stroke); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); display: grid; place-items: center; }
+.pinpad button:active { background: rgba(255, 255, 255, .25); }
+.pinpad button[data-pin="bio"], .pinpad button[data-pin="del"] { background: transparent; border-color: transparent; font-size: 1.4rem; }
+.pinpad button svg { width: 30px; height: 30px; }
+#lock-sair { margin-top: 28px; color: var(--muted); font-weight: 500; }
 
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--sb) + 100px); z-index: 60; padding: 12px 18px; border-radius: 99px; font-size: .88rem; background: rgba(40, 40, 48, .85); max-width: 88vw; text-align: center; animation: aparece .25s ease-out; }

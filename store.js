@@ -3,7 +3,7 @@
 import { firebaseConfig } from './firebase-config.js';
 
 const FB = 'https://www.gstatic.com/firebasejs/10.12.2/';
-export const COLECOES = ['contas', 'entradas', 'recorrentes', 'carteiras', 'compras', 'faturas', 'transferencias', 'orcamentos', 'metas'];
+export const COLECOES = ['contas', 'entradas', 'recorrentes', 'carteiras', 'compras', 'faturas', 'transferencias', 'orcamentos', 'metas', 'config'];
 
 export const modoLocal = !firebaseConfig || !firebaseConfig.apiKey || new URLSearchParams(location.search).has('local');
 
@@ -34,6 +34,8 @@ function criarStoreLocal() {
     async atualizar(col, id, dados) { const d = ler(); d[col][id] = { ...d[col][id], ...dados }; gravar(d); },
     async remover(col, id) { const d = ler(); delete d[col][id]; gravar(d); },
     async exportarTudo() { return ler(); },
+    async apagarTudo() { gravar(vazio()); },
+    async excluirConta() { localStorage.removeItem(KEY); localStorage.removeItem(KEY + '-logado'); onAuth(null); },
   };
 }
 
@@ -92,6 +94,29 @@ async function criarStoreFirebase() {
       const out = {};
       for (const c of COLECOES) out[c] = mapear(await fs.getDocs(col(c)));
       return out;
+    },
+    // Apaga todos os documentos do usuário e espera o servidor confirmar.
+    async apagarTudo() {
+      // Recorrências primeiro, para nenhum aparelho recriar lançamentos no meio da limpeza.
+      for (const c of ['recorrentes', ...COLECOES.filter((x) => x !== 'recorrentes')]) {
+        const docs = (await fs.getDocs(col(c))).docs;
+        for (let i = 0; i < docs.length; i += 400) {
+          const b = fs.writeBatch(db);
+          docs.slice(i, i + 400).forEach((d) => b.delete(d.ref));
+          await b.commit();
+        }
+      }
+    },
+    async excluirConta() {
+      const u = a.currentUser;
+      if (!u) return;
+      try {
+        await auth.deleteUser(u);
+      } catch (e) {
+        if (e.code !== 'auth/requires-recent-login') throw e;
+        await auth.reauthenticateWithPopup(u, new auth.GoogleAuthProvider());
+        await auth.deleteUser(u);
+      }
     },
   };
 }

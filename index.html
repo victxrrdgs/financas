@@ -33,23 +33,14 @@
   <!-- App -->
   <section id="app" class="hidden">
     <header class="top">
-      <button id="avatar" class="avatar" data-a="menu" aria-label="Menu"></button>
+      <button id="avatar" class="avatar" data-a="ir" data-id="conta" aria-label="Minha conta"></button>
       <div class="mes-pill g">
         <button id="mes-ant" aria-label="Mês anterior">‹</button>
-        <span id="mes-label"></span>
+        <span id="mes-label" data-a="hoje" title="Ir para o mês atual"></span>
         <button id="mes-prox" aria-label="Próximo mês">›</button>
       </div>
       <button id="btn-olho" class="ico g" aria-label="Ocultar valores"></button>
     </header>
-
-    <div id="menu" class="menu g hidden">
-      <div class="menu-user" id="menu-user"></div>
-      <button data-a="hoje">📅 Ir para o mês atual</button>
-      <button data-a="recorrencias">🔁 Recorrências</button>
-      <button data-a="exportar">💾 Exportar backup</button>
-      <button data-a="sair" class="danger-text">↪ Sair</button>
-      <div class="menu-status" id="sync-status"></div>
-    </div>
 
     <main id="conteudo"></main>
 
@@ -68,6 +59,27 @@
         <svg viewBox="0 0 24 24"><path d="M4 20V11M10 20V5M16 20v-6M21 20H3"/></svg><span>Relatórios</span>
       </button>
     </nav>
+  </section>
+
+  <!-- Bloqueio do app -->
+  <section id="lock" class="hidden">
+    <div class="lock-box">
+      <div class="logo">R$</div>
+      <h2>Minhas Finanças</h2>
+      <p id="lock-msg">Digite seu PIN</p>
+      <div class="pin-dots" id="pin-dots"></div>
+      <div class="pinpad">
+        <button data-pin="1">1</button><button data-pin="2">2</button><button data-pin="3">3</button>
+        <button data-pin="4">4</button><button data-pin="5">5</button><button data-pin="6">6</button>
+        <button data-pin="7">7</button><button data-pin="8">8</button><button data-pin="9">9</button>
+        <button data-pin="bio" id="pin-bio" aria-label="Usar biometria">
+          <svg viewBox="0 0 24 24"><path d="M12 11v3m-4-3a4 4 0 0 1 8 0v2a8 8 0 0 1-1 4M6 12a6 6 0 0 1 12-1M4.5 15A9 9 0 0 1 4 12a8 8 0 0 1 14-5.3M9 21a10 10 0 0 0 1-5v-3a2 2 0 0 1 4 0"/></svg>
+        </button>
+        <button data-pin="0">0</button>
+        <button data-pin="del" aria-label="Apagar">⌫</button>
+      </div>
+      <button id="lock-sair" class="link">Esqueci o PIN · sair da conta</button>
+    </div>
   </section>
 
   <div id="modal" class="modal hidden" role="dialog" aria-modal="true">

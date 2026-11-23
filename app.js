@@ -1,5 +1,8 @@
 import { criarStore, modoLocal, COLECOES } from './store.js';
 import * as C from './calc.js';
+import * as L from './lock.js';
+
+const VERSAO = '2.1';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -13,9 +16,14 @@ let usuario = null;
 let ym = C.ymAtual();
 let tela = 'inicio';
 let sub = 'apagar';
-let ocultar = localStorage.getItem('fin-ocultar') === '1';
+let ocultar = localStorage.getItem('fin-ocultar') === '1' || localStorage.getItem('fin-ocultar-abrir') === '1';
 const D = Object.fromEntries(COLECOES.map((c) => [c, []]));
 const srv = {};
+let syncStatus = '';
+let configVista = false;
+let apagando = false;
+const prefs = () => D.config.find((x) => x.id === 'prefs') || {};
+const salvarPrefs = (mud) => { const { id, ...atual } = prefs(); store.definir('config', 'prefs', { ...atual, ...mud }); };
 let paradas = [];
 const geradosNestaSessao = new Set();
 let ultimoHero = null;
@@ -51,7 +59,7 @@ async function iniciar() {
   ligarEventos();
   atualizarOlho();
   await store.init((u) => { usuario = u; u ? mostrarApp() : mostrarLogin(); });
-  store.assinarStatus((s) => { $('#sync-status').textContent = s; });
+  store.assinarStatus((s) => { syncStatus = s; });
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
@@ -64,17 +72,26 @@ function mostrarLogin() {
 function mostrarApp() {
   $('#login').classList.add('hidden');
   $('#app').classList.remove('hidden');
-  const nome = usuario.displayName || '';
-  $('#avatar').innerHTML = usuario.photoURL ? `<img src="${esc(usuario.photoURL)}" alt="" referrerpolicy="no-referrer">` : esc((nome[0] || '?').toUpperCase());
-  $('#menu-user').innerHTML = `<b>${esc(nome)}</b><br>${esc(usuario.email || '')}`;
+  $('#avatar').innerHTML = avatarHTML();
+  if (L.config()) travar();
   paradas.forEach((f) => f());
   paradas = COLECOES.map((col) => store.assinar(col, (lista, doServidor) => {
     D[col] = lista; srv[col] = doServidor;
+    if (col === 'config') {
+      const antes = C.diaInicio();
+      C.configurar(prefs());
+      // Ao carregar as preferências pela 1ª vez, abre no mês financeiro atual.
+      if (!configVista || antes !== C.diaInicio()) { ym = C.ymAtual(); configVista = true; }
+    }
     gerarRecorrentes();
     agendarRender();
   }));
   agendarRender();
 }
+
+const avatarHTML = () => (usuario.photoURL
+  ? `<img src="${esc(usuario.photoURL)}" alt="" referrerpolicy="no-referrer">`
+  : esc(((usuario.displayName || '?')[0]).toUpperCase()));
 
 let renderPendente = false;
 function agendarRender() {
@@ -86,7 +103,8 @@ function agendarRender() {
 // Cria os lançamentos das recorrências para o mês aberto e o atual.
 // Só roda com dados confirmados pelo servidor, para não duplicar nem sobrescrever.
 function gerarRecorrentes() {
-  if (!srv.contas || !srv.entradas || !srv.recorrentes) return;
+  if (apagando || !srv.contas || !srv.entradas || !srv.recorrentes || !srv.config) return;
+  C.configurar(prefs());
   for (const mes of new Set([ym, C.ymAtual()])) {
     for (const r of D.recorrentes) {
       if (!r.inicio || r.inicio > mes || (r.fim && mes > r.fim)) continue;
@@ -94,7 +112,7 @@ function gerarRecorrentes() {
       const col = r.tipo === 'entrada' ? 'entradas' : 'contas';
       if (D[col].some((x) => x.id === id) || geradosNestaSessao.has(id)) continue;
       geradosNestaSessao.add(id);
-      const doc = { descricao: r.descricao, valor: r.valor, data: C.diaNoMes(mes, r.dia), recorrenteId: r.id, carteiraId: r.carteiraId || null };
+      const doc = { descricao: r.descricao, valor: r.valor, data: C.dataNoPeriodo(mes, r.dia), recorrenteId: r.id, carteiraId: r.carteiraId || null };
       if (col === 'contas') Object.assign(doc, { categoria: r.categoria || 'Outros', pago: false, pagoEm: null });
       store.definir(col, id, doc);
     }
@@ -103,10 +121,12 @@ function gerarRecorrentes() {
 
 // ---------------- Render ----------------
 function render() {
+  C.configurar(prefs());
   $('#mes-label').textContent = C.rotuloMes(ym);
+  $('#avatar').classList.toggle('ativo', tela === 'conta');
   $$('.dock [data-tela]').forEach((b) => b.classList.toggle('active', b.dataset.tela === tela));
   const el = $('#conteudo');
-  const html = { inicio: telaInicio, lanc: telaLanc, planejar: telaPlanejar, relatorios: telaRelatorios }[tela]();
+  const html = { inicio: telaInicio, lanc: telaLanc, planejar: telaPlanejar, relatorios: telaRelatorios, conta: telaConta }[tela]();
   el.innerHTML = html;
   animarHero();
 }
@@ -161,17 +181,16 @@ function linhaPagavel(x) {
 
 function heatmap() {
   const dias = C.gastosPorDia(D, ym);
-  const [a, m] = ym.split('-').map(Number);
-  const total = new Date(a, m, 0).getDate();
-  const offset = new Date(a, m - 1, 1).getDay();
+  const lista = C.diasDoPeriodo(ym);
+  const [a, m, d0] = lista[0].split('-').map(Number);
+  const offset = new Date(a, m - 1, d0).getDay();
   const vals = Object.values(dias).filter((v) => v > 0).sort((x, y) => x - y);
   const q = (p) => vals[Math.floor((vals.length - 1) * p)] || 0;
   const nivel = (v) => (!v ? '' : v <= q(.25) ? 'l1' : v <= q(.5) ? 'l2' : v <= q(.8) ? 'l3' : 'l4');
   const hoje = C.hojeISO();
   let cells = '<i class="vz"></i>'.repeat(offset);
-  for (let d = 1; d <= total; d++) {
-    const iso = `${ym}-${C.pad(d)}`;
-    cells += `<i class="${nivel(dias[d])} ${iso === hoje ? 'hoje' : ''}" title="${C.dataBR(iso)}: ${fmt(dias[d] || 0)}"></i>`;
+  for (const iso of lista) {
+    cells += `<i class="${nivel(dias[iso])} ${iso === hoje ? 'hoje' : ''}" title="${C.dataBR(iso)}: ${fmt(dias[iso] || 0)}"></i>`;
   }
   const soma = Object.values(dias).reduce((t, v) => t + v, 0);
   return `<div class="card g">
@@ -186,7 +205,9 @@ function heatmap() {
 // ----- Início -----
 function telaInicio() {
   const r = C.resumoMes(D, ym);
-  const nome = (usuario.displayName || '').split(' ')[0] || 'você';
+  const nome = prefs().apelido || (usuario.displayName || '').split(' ')[0] || 'você';
+  const [pIni, pFim] = C.periodo(ym);
+  const faixa = C.diaInicio() > 1 ? ` (${C.dataBR(pIni)} a ${C.dataBR(pFim)})` : '';
   const bancos = C.contasBancarias(D);
   const cats = C.gastosPorCategoria(D, ym);
   const gastos = cats.reduce((t, [, v]) => t + v, 0);
@@ -205,7 +226,7 @@ function telaInicio() {
   return `
   <section class="hero">
     <div class="ola">${saud}, ${esc(nome)}</div>
-    <div class="hero-lbl">Sobrou em ${C.nomeMes(ym).toLowerCase()} · entrou − pago</div>
+    <div class="hero-lbl">Sobrou em ${C.nomeMes(ym).toLowerCase()}${faixa} · entrou − pago</div>
     <div class="hero-val ${r.sobra < 0 ? 'neg' : ''}" data-count="${r.sobra}">${fmt(r.sobra)}</div>
     <div class="hero-sub">Previsão pagando tudo: <b class="${r.previsao < 0 ? 'neg' : ''}">${fmt(r.previsao)}</b></div>
   </section>
@@ -265,7 +286,7 @@ function telaLanc() {
       : `<div class="vazio g"><span class="big">${pagas ? '🧾' : '🎉'}</span>${pagas ? 'Nenhuma conta paga neste mês ainda' : 'Nada a pagar neste mês.<br>Toque em <b>+</b> para adicionar.'}</div>`;
   } else if (sub === 'entradas') {
     const l = [...r.entradas].sort((a, b) => a.data.localeCompare(b.data));
-    const tr = D.transferencias.filter((t) => t.data.startsWith(ym)).sort((a, b) => a.data.localeCompare(b.data));
+    const tr = D.transferencias.filter((t) => C.noMes(t.data, ym)).sort((a, b) => a.data.localeCompare(b.data));
     corpo = l.length
       ? `<div class="total-linha"><span>${plural(l.length, 'entrada', 'entradas')}</span><span>Total <b>${fmt(C.soma(l))}</b></span></div>
         <div class="list g">${l.map((e) => {
@@ -426,13 +447,12 @@ function abrirModal(titulo, html) {
   $('#modal-titulo').textContent = titulo;
   $('#modal-corpo').innerHTML = html;
   $('#modal').classList.remove('hidden');
-  $('#menu').classList.add('hidden');
   const primeiro = $('#modal-corpo input:not([type=checkbox]):not([type=radio])');
   if (primeiro && window.matchMedia('(pointer: fine)').matches) primeiro.focus();
 }
 const fecharModal = () => $('#modal').classList.add('hidden');
-const dataPadrao = () => (ym === C.ymAtual() ? C.hojeISO() : `${ym}-01`);
-const optsCategorias = (sel) => C.CATEGORIAS.map((k) => `<option value="${esc(k)}" ${k === sel ? 'selected' : ''}>${C.catInfo(k).e} ${esc(k)}</option>`).join('');
+const dataPadrao = () => (ym === C.ymAtual() ? C.hojeISO() : C.periodo(ym)[0]);
+const optsCategorias = (sel) => [...new Set([...C.listaCategorias(), ...(sel ? [sel] : [])])].map((k) => `<option value="${esc(k)}" ${k === sel ? 'selected' : ''}>${C.catInfo(k).e} ${esc(k)}</option>`).join('');
 const optsCarteiras = (sel, nenhuma = 'Nenhuma') => `<option value="">${nenhuma}</option>` + C.contasBancarias(D).map((c) => `<option value="${c.id}" ${c.id === sel ? 'selected' : ''}>${esc(c.nome)}</option>`).join('');
 const campoValor = (v, lbl = 'Valor') => `<label>${lbl}</label><input name="valor" class="valor-big" required inputmode="decimal" placeholder="R$ 0,00" value="${v ? Number(v).toFixed(2).replace('.', ',') : ''}">`;
 const botoes = (podeExcluir) => `<div class="acoes">${podeExcluir ? '<button type="button" class="btn danger" data-excluir>Excluir</button>' : ''}<button class="btn primary">Salvar</button></div>`;
@@ -498,14 +518,14 @@ function formConta(c) {
     if (carteiraId) localStorage.setItem('fin-ultima-carteira', carteiraId);
     const dados = { descricao: f.get('descricao').trim(), valor, data: f.get('data'), categoria: f.get('categoria'), carteiraId, pago, pagoEm: pago ? (c.pagoEm || C.hojeISO()) : null };
     if (novo && f.get('repetir') === 'on') {
-      const recId = store.novoId(); const mes = dados.data.slice(0, 7);
+      const recId = store.novoId(); const mes = C.mesDe(dados.data);
       store.definir('recorrentes', recId, { tipo: 'conta', descricao: dados.descricao, valor, categoria: dados.categoria, carteiraId, dia: Number(dados.data.slice(8, 10)), inicio: mes, fim: null });
       store.definir('contas', `${recId}_${mes}`, { ...dados, recorrenteId: recId });
       geradosNestaSessao.add(`${recId}_${mes}`);
     } else if (novo) store.adicionar('contas', dados);
     else store.atualizar('contas', c.id, dados);
     fecharModal();
-    toast(dados.data.slice(0, 7) !== ym ? `Salva em ${C.rotuloMes(dados.data.slice(0, 7))}` : novo ? 'Conta adicionada' : 'Conta atualizada');
+    toast(C.mesDe(dados.data) !== ym ? `Salva em ${C.rotuloMes(C.mesDe(dados.data))}` : novo ? 'Conta adicionada' : 'Conta atualizada');
   });
   ligarExcluir(() => (c.recorrenteId ? store.atualizar('contas', c.id, { excluida: true }) : store.remover('contas', c.id)));
   ligarParar();
@@ -533,7 +553,7 @@ function formEntrada(e) {
     const carteiraId = f.get('carteiraId') || null;
     const dados = { descricao: f.get('descricao').trim(), valor, data: f.get('data'), carteiraId };
     if (novo && f.get('repetir') === 'on') {
-      const recId = store.novoId(); const mes = dados.data.slice(0, 7);
+      const recId = store.novoId(); const mes = C.mesDe(dados.data);
       store.definir('recorrentes', recId, { tipo: 'entrada', descricao: dados.descricao, valor, carteiraId, dia: Number(dados.data.slice(8, 10)), inicio: mes, fim: null });
       store.definir('entradas', `${recId}_${mes}`, { ...dados, recorrenteId: recId });
       geradosNestaSessao.add(`${recId}_${mes}`);
@@ -698,7 +718,7 @@ function formCarteira(c, tipoPadrao) {
 function formOrcamento(o) {
   const novo = !o;
   const usados = new Set(D.orcamentos.map((x) => x.categoria));
-  const livres = C.CATEGORIAS.filter((k) => !usados.has(k) || (o && o.categoria === k));
+  const livres = C.listaCategorias().filter((k) => !usados.has(k) || (o && o.categoria === k));
   if (novo && !livres.length) { toast('Todas as categorias já têm orçamento'); return; }
   o = o || { categoria: livres[0], limite: null };
   const gasto = Object.fromEntries(C.gastosPorCategoria(D, ym))[o.categoria] || 0;
@@ -779,14 +799,6 @@ function gerenciarRecorrencias() {
   }));
 }
 
-async function exportar() {
-  const dados = await store.exportarTudo();
-  const blob = new Blob([JSON.stringify(dados, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = `financas-backup-${C.hojeISO()}.json`; a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-}
-
 function atualizarOlho() {
   $('#btn-olho').innerHTML = ocultar ? ICON_OLHO_OFF : ICON_OLHO;
 }
@@ -798,13 +810,340 @@ function mudarMes(n) {
   $('#conteudo').classList.remove('fade-in'); void $('#conteudo').offsetWidth; $('#conteudo').classList.add('fade-in');
 }
 
+// ---------------- Conta ----------------
+function linhaConta(acao, ic, cor, titulo, direita = '<span class="seta">›</span>', extra = '') {
+  return `<div class="row clic ${extra}" data-a="${acao}"><div class="ic" style="--c:${cor}">${ic}</div>
+    <div class="info"><div class="t">${titulo}</div></div>${direita}</div>`;
+}
+
+function telaConta() {
+  const lk = L.config();
+  const p = prefs();
+  const tempo = lk ? (lk.minutos === 0 ? 'ao sair do app' : `após ${lk.minutos ?? 1} min`) : '';
+  const nCats = (p.categorias || []).length;
+  const ocAbrir = localStorage.getItem('fin-ocultar-abrir') === '1';
+  const seta = (txt) => `<span class="val-d">${txt}</span><span class="seta">›</span>`;
+  return `
+  <div class="card g perfil">
+    <div class="avatar">${avatarHTML()}</div>
+    <div style="min-width:0">
+      <div class="nome">${esc(usuario.displayName || 'Você')}</div>
+      <div class="mail">${esc(usuario.email || '')}</div>
+      <div class="via">${modoLocal ? '🧪 Modo local de teste' : '<b style="color:#fff">G</b> Conectado com Google'}</div>
+    </div>
+  </div>
+
+  <div class="sec"><div class="sec-h"><h3>Segurança</h3></div><div class="list g">
+    ${linhaConta('cfg-bloqueio', '🔒', '#a78bfa', 'Bloqueio do app', seta(lk ? (lk.credId ? 'PIN + biometria' : 'PIN') : 'Desligado'))}
+    ${lk ? linhaConta('cfg-tempo', '⏱️', '#60a5fa', 'Bloquear', seta(tempo)) : ''}
+    ${linhaConta('cfg-ocultar', '👁️', '#22d3ee', 'Ocultar valores ao abrir', `<span class="sw ${ocAbrir ? 'on' : ''}"></span>`)}
+    <a class="row clic" href="https://myaccount.google.com/security" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">
+      <div class="ic" style="--c:#4ade80">🛡️</div><div class="info"><div class="t">Senha e segurança da conta Google</div></div><span class="seta">↗</span></a>
+  </div></div>
+
+  <div class="sec"><div class="sec-h"><h3>Preferências</h3></div><div class="list g">
+    ${linhaConta('cfg-apelido', '👋', '#facc15', 'Como quer ser chamado', seta(esc(p.apelido || (usuario.displayName || '').split(' ')[0] || '—')))}
+    ${linhaConta('cfg-inicio', '📅', '#ff8a4c', 'Início do mês financeiro', seta(`Dia ${C.diaInicio()}`))}
+    ${linhaConta('cfg-categorias', '🏷️', '#f472b6', 'Categorias', seta(nCats ? `${nCats} ${nCats === 1 ? 'personalizada' : 'personalizadas'}` : 'Padrão'))}
+    ${linhaConta('recorrencias', '🔁', '#818cf8', 'Recorrências', seta(String(D.recorrentes.filter((r) => !r.fim || r.fim >= C.ymAtual()).length)))}
+  </div></div>
+
+  <div class="sec"><div class="sec-h"><h3>Seus dados</h3></div><div class="list g">
+    ${linhaConta('exportar-csv', '📊', '#4ade80', 'Exportar planilha (Excel)')}
+    ${linhaConta('exportar', '💾', '#60a5fa', 'Exportar backup completo')}
+    ${linhaConta('importar', '📥', '#2dd4bf', 'Importar backup')}
+    ${linhaConta('apagar-tudo', '🗑️', '#fb7185', 'Apagar todos os dados', '<span class="seta">›</span>', 'perigo')}
+  </div></div>
+
+  <div class="sec"><div class="list g">
+    ${linhaConta('sair', '↪️', '#a1a1aa', 'Sair da conta', '')}
+    ${linhaConta('excluir-conta', '⚠️', '#fb7185', 'Excluir conta', '', 'perigo')}
+  </div></div>
+
+  <div class="rodape">Minhas Finanças · versão ${VERSAO}<br>${esc(syncStatus)}</div>`;
+}
+
+function configApelido() {
+  abrirModal('Como quer ser chamado', `<form id="f">
+    <label>Nome na saudação</label><input name="apelido" maxlength="30" placeholder="${esc((usuario.displayName || '').split(' ')[0])}" value="${esc(prefs().apelido || '')}">
+    <div class="acoes"><button class="btn primary">Salvar</button></div></form>`);
+  $('#f').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    salvarPrefs({ apelido: new FormData(ev.target).get('apelido').trim() });
+    fecharModal(); toast('Salvo');
+  });
+}
+
+function configInicio() {
+  abrirModal('Início do mês financeiro', `<form id="f">
+    <div class="aviso" style="margin-top:4px">Se seu salário cai no dia 5, por exemplo, use <b>dia 5</b>: o "mês de novembro" vai de 05/11 a 04/12, e o resumo, os orçamentos e as recorrências seguem esse período.</div>
+    <label>Dia em que o mês começa</label><input name="dia" type="number" min="1" max="28" required value="${C.diaInicio()}">
+    <div class="aviso" id="prev-dia"></div>
+    <div class="acoes"><button class="btn primary">Salvar</button></div></form>`);
+  const form = $('#f');
+  const prev = () => {
+    const d = Math.min(28, Math.max(1, Number(new FormData(form).get('dia')) || 1));
+    const atual = C.diaInicio();
+    C.configurar({ ...prefs(), diaInicio: d });
+    const m = C.ymAtual(); const [i, f] = C.periodo(m);
+    $('#prev-dia').innerHTML = `Mês atual: <b>${C.nomeMes(m)}</b>, de ${C.dataBR(i)} a ${C.dataBR(f)}`;
+    C.configurar({ ...prefs(), diaInicio: atual });
+  };
+  form.addEventListener('input', prev); prev();
+  form.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const d = Math.min(28, Math.max(1, Number(new FormData(form).get('dia')) || 1));
+    salvarPrefs({ diaInicio: d });
+    fecharModal(); toast(`O mês agora começa no dia ${d}`);
+  });
+}
+
+function configCategorias() {
+  const extras = prefs().categorias || [];
+  abrirModal('Categorias', `
+    ${extras.length ? `<div class="list g">${extras.map((c, i) => `<div class="row">
+      <div class="ic" style="--c:${c.c}">${esc(c.e)}</div><div class="info"><div class="t">${esc(c.nome)}</div></div>
+      <button class="btn danger" style="flex:0;padding:8px 12px;font-size:.8rem" data-del-cat="${i}">Remover</button></div>`).join('')}</div>`
+      : '<div class="aviso" style="margin-top:4px">Você ainda não criou categorias. As padrão são: ' + C.listaCategorias().join(', ') + '.</div>'}
+    <form id="f">
+      <div class="lbl-f" style="margin-top:22px;font-weight:600;color:var(--text)">Nova categoria</div>
+      <div class="linha">
+        <div style="flex:0 0 76px"><label>Ícone</label><input name="e" maxlength="4" value="🏷️" style="text-align:center;font-size:1.3rem"></div>
+        <div><label>Nome</label><input name="nome" required maxlength="24" placeholder="Ex.: Pets, Filhos, Beleza"></div>
+      </div>
+      <label>Cor</label>
+      <div class="cores">${C.CORES.map((k, i) => `<label style="background:${k}"><input type="radio" name="c" value="${k}" ${i === 2 ? 'checked' : ''}></label>`).join('')}</div>
+      <div class="acoes"><button class="btn primary">Adicionar</button></div>
+    </form>`);
+  $('#f').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const f = new FormData(ev.target);
+    const nome = f.get('nome').trim();
+    if (C.listaCategorias().some((k) => k.toLowerCase() === nome.toLowerCase())) { toast('Essa categoria já existe'); return; }
+    salvarPrefs({ categorias: [...extras, { nome, e: f.get('e').trim() || '🏷️', c: f.get('c') || C.CORES[2] }] });
+    toast(`Categoria "${nome}" criada`);
+    setTimeout(configCategorias, 150);
+  });
+  $$('#modal-corpo [data-del-cat]').forEach((b) => b.addEventListener('click', () => {
+    salvarPrefs({ categorias: extras.filter((_, i) => i !== Number(b.dataset.delCat)) });
+    toast('Categoria removida. Lançamentos antigos continuam com o nome.');
+    setTimeout(configCategorias, 150);
+  }));
+}
+
+// ----- Bloqueio -----
+let pinDigitado = '';
+let escondidoEm = null;
+
+function desenharPin() {
+  const n = L.config()?.pinLen || 4;
+  $('#pin-dots').innerHTML = Array.from({ length: n }, (_, i) => `<i class="${i < pinDigitado.length ? 'on' : ''}"></i>`).join('');
+}
+function travar() {
+  const c = L.config(); if (!c) return;
+  pinDigitado = ''; desenharPin();
+  $('#lock-msg').textContent = c.credId ? 'Use a biometria ou digite seu PIN' : 'Digite seu PIN';
+  $('#pin-bio').style.visibility = c.credId ? 'visible' : 'hidden';
+  document.body.classList.add('travado');
+  $('#lock').classList.remove('hidden');
+  fecharModal();
+  if (c.credId) tentarBio(true);
+}
+function destravar() {
+  document.body.classList.remove('travado');
+  $('#lock').classList.add('hidden');
+  pinDigitado = '';
+}
+async function tentarBio(auto) {
+  try { if (await L.verificarBio()) destravar(); } catch (e) { if (!auto) $('#lock-msg').textContent = 'Biometria não confirmada. Use o PIN.'; }
+}
+async function teclaPin(k) {
+  const c = L.config(); if (!c) return;
+  if (k === 'bio') { tentarBio(false); return; }
+  if (k === 'del') { pinDigitado = pinDigitado.slice(0, -1); desenharPin(); return; }
+  if (pinDigitado.length >= c.pinLen) return;
+  pinDigitado += k; desenharPin();
+  if (pinDigitado.length < c.pinLen) return;
+  if (await L.conferePin(pinDigitado)) { destravar(); return; }
+  const d = $('#pin-dots'); d.classList.remove('erro'); void d.offsetWidth; d.classList.add('erro');
+  $('#lock-msg').textContent = 'PIN incorreto';
+  pinDigitado = ''; setTimeout(desenharPin, 400);
+}
+
+function formNovoPin(titulo, aoSalvar) {
+  abrirModal(titulo, `<form id="f">
+    <label>Novo PIN (4 a 6 números)</label><input name="p1" class="pin-in" type="password" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" required autocomplete="off">
+    <label>Repita o PIN</label><input name="p2" class="pin-in" type="password" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" required autocomplete="off">
+    <label class="chk-l hidden" id="l-bio"><input type="checkbox" name="bio" checked> Desbloquear também com biometria (digital / Face ID)</label>
+    <div class="aviso">O bloqueio vale só para este aparelho. Se esquecer o PIN, basta sair e entrar de novo com o Google.</div>
+    <div class="acoes"><button class="btn primary">Ativar</button></div></form>`);
+  L.bioDisponivel().then((ok) => { if (ok) $('#l-bio')?.classList.remove('hidden'); else { const cb = $('#f [name=bio]'); if (cb) cb.checked = false; } });
+  $('#f').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const f = new FormData(ev.target);
+    const p1 = f.get('p1'); const p2 = f.get('p2');
+    if (!/^\d{4,6}$/.test(p1)) { toast('Use de 4 a 6 números'); return; }
+    if (p1 !== p2) { toast('Os PINs não conferem'); return; }
+    const cfg = { ...(await L.criarPin(p1)), minutos: L.config()?.minutos ?? 1 };
+    if (f.get('bio') === 'on') {
+      try { cfg.credId = await L.criarBio(usuario.email || usuario.displayName); } catch (e) { toast('Biometria não ativada; ficou só o PIN'); }
+    }
+    aoSalvar(cfg);
+  });
+}
+
+function configBloqueio() {
+  const c = L.config();
+  if (!c) {
+    formNovoPin('Ativar bloqueio', (cfg) => { L.salvar(cfg); fecharModal(); render(); toast(cfg.credId ? '🔒 Bloqueio com PIN e biometria ativado' : '🔒 Bloqueio com PIN ativado'); });
+    return;
+  }
+  abrirModal('Bloqueio do app', `<form id="f">
+    <div class="aviso" style="margin-top:4px">Ativo neste aparelho: <b>${c.credId ? 'PIN + biometria' : 'PIN'}</b>. Confirme seu PIN atual para alterar.</div>
+    <label>PIN atual</label><input name="pin" class="pin-in" type="password" inputmode="numeric" maxlength="6" required autocomplete="off">
+    <div class="acoes" style="flex-direction:column">
+      <button type="button" class="btn" data-op="trocar">Trocar PIN</button>
+      <button type="button" class="btn" data-op="bio">${c.credId ? 'Remover biometria' : 'Ativar biometria'}</button>
+      <button type="button" class="btn danger" data-op="off">Desligar bloqueio</button>
+    </div></form>`);
+  $$('#modal-corpo [data-op]').forEach((b) => b.addEventListener('click', async () => {
+    if (!(await L.conferePin($('#f [name=pin]').value))) { toast('PIN incorreto'); return; }
+    const op = b.dataset.op;
+    if (op === 'off') { L.salvar(null); fecharModal(); render(); toast('Bloqueio desligado'); }
+    if (op === 'trocar') formNovoPin('Trocar PIN', (cfg) => { L.salvar(cfg); fecharModal(); render(); toast('PIN alterado'); });
+    if (op === 'bio') {
+      const novo = { ...c };
+      if (c.credId) delete novo.credId;
+      else {
+        if (!(await L.bioDisponivel())) { toast('Este aparelho não tem biometria disponível'); return; }
+        try { novo.credId = await L.criarBio(usuario.email || usuario.displayName); } catch (e) { toast('Biometria não ativada'); return; }
+      }
+      L.salvar(novo); fecharModal(); render(); toast(novo.credId ? 'Biometria ativada' : 'Biometria removida');
+    }
+  }));
+}
+
+function configTempo() {
+  const c = L.config(); if (!c) return;
+  const ops = [[0, 'Na hora'], [1, '1 min'], [5, '5 min'], [15, '15 min']];
+  abrirModal('Bloquear o app', `<form id="f">
+    <label>Pedir PIN/biometria depois que o app ficar em segundo plano por</label>
+    <div class="seg">${ops.map(([v, t]) => `<label><input type="radio" name="m" value="${v}" ${(c.minutos ?? 1) === v ? 'checked' : ''}>${t}</label>`).join('')}</div>
+    <div class="acoes"><button class="btn primary">Salvar</button></div></form>`);
+  $('#f').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    L.salvar({ ...c, minutos: Number(new FormData(ev.target).get('m')) });
+    fecharModal(); render(); toast('Salvo');
+  });
+}
+
+// ----- Dados -----
+function baixar(nome, conteudo, tipo) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([conteudo], { type: tipo }));
+  a.download = nome; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function exportarCSV() {
+  const dBR = (iso) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : '');
+  const num = (v) => (Number(v) || 0).toFixed(2).replace('.', ',');
+  const nomeC = (id) => carteira(id)?.nome || '';
+  const linhas = [];
+  C.vis(D.contas).forEach((c) => linhas.push([c.data, 'Conta a pagar', c.descricao, c.categoria || 'Outros', num(-c.valor), c.pago ? `Paga em ${dBR(c.pagoEm)}` : 'Em aberto', nomeC(c.carteiraId), '']));
+  C.vis(D.entradas).forEach((e) => linhas.push([e.data, 'Entrada', e.descricao, '', num(e.valor), 'Recebida', nomeC(e.carteiraId), '']));
+  D.compras.forEach((p) => linhas.push([p.data, 'Compra no cartão', p.descricao, p.categoria || 'Outros', num(-p.valor), '', nomeC(p.carteiraId), p.parcelas > 1 ? `${p.parcelas}x` : 'À vista']));
+  D.transferencias.forEach((t) => linhas.push([t.data, 'Transferência', `${nomeC(t.de)} → ${nomeC(t.para)}`, '', num(t.valor), '', '', '']));
+  linhas.sort((a, b) => a[0].localeCompare(b[0]));
+  const cab = ['Data', 'Tipo', 'Descrição', 'Categoria', 'Valor (R$)', 'Situação', 'Conta/Cartão', 'Parcelas'];
+  const cel = (s) => (/[;"\n]/.test(String(s)) ? `"${String(s).replace(/"/g, '""')}"` : String(s));
+  const csv = [cab, ...linhas.map((l) => [dBR(l[0]), ...l.slice(1)])].map((l) => l.map(cel).join(';')).join('\r\n');
+  baixar(`financas-${C.hojeISO()}.csv`, '﻿' + csv, 'text/csv;charset=utf-8');
+  toast(`${linhas.length} lançamentos exportados`);
+}
+
+async function exportar() {
+  const dados = await store.exportarTudo();
+  baixar(`financas-backup-${C.hojeISO()}.json`, JSON.stringify(dados, null, 2), 'application/json');
+}
+
+function importar() {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.json,application/json';
+  inp.onchange = async () => {
+    const arq = inp.files[0]; if (!arq) return;
+    let dados;
+    try { dados = JSON.parse(await arq.text()); } catch (e) { toast('Arquivo inválido'); return; }
+    const itens = [];
+    for (const col of COLECOES) {
+      const v = dados[col];
+      if (!v) continue;
+      const pares = Array.isArray(v) ? v.map(({ id, ...r }) => [id, r]) : Object.entries(v);
+      pares.forEach(([id, r]) => { if (id && r && typeof r === 'object') itens.push([col, id, r]); });
+    }
+    if (!itens.length) { toast('Nenhum dado encontrado no arquivo'); return; }
+    abrirModal('Importar backup', `<div class="aviso" style="margin-top:4px">Encontrei <b>${itens.length}</b> registros em <b>${esc(arq.name)}</b>. Itens que já existem com o mesmo identificador serão substituídos; o resto fica como está.</div>
+      <div class="acoes"><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok>Importar</button></div>`);
+    $('#modal-corpo [data-x]').onclick = fecharModal;
+    $('#modal-corpo [data-ok]').onclick = () => {
+      itens.forEach(([col, id, r]) => store.definir(col, id, r));
+      fecharModal(); toast(`${itens.length} registros importados`);
+    };
+  };
+  inp.click();
+}
+
+function confirmarDigitando(titulo, aviso, palavra, botao, acao) {
+  abrirModal(titulo, `<form id="f">
+    <div class="aviso" style="margin-top:4px">${aviso}</div>
+    <button type="button" class="btn big" data-a="exportar">💾 Baixar backup antes</button>
+    <label>Para confirmar, digite <b>${palavra}</b></label><input name="w" autocomplete="off" autocapitalize="characters">
+    <div class="acoes"><button class="btn danger">${botao}</button></div></form>`);
+  $('#f').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    if (new FormData(ev.target).get('w').trim().toUpperCase() !== palavra) { toast(`Digite ${palavra} para confirmar`); return; }
+    const b = ev.target.querySelector('.btn.danger'); b.disabled = true; b.textContent = 'Aguarde…';
+    try { await acao(); } catch (e) { b.disabled = false; b.textContent = botao; toast('Não foi possível concluir: ' + (e.code || e.message)); }
+  });
+}
+
+function apagarTudo() {
+  confirmarDigitando('Apagar todos os dados', 'Isso apaga <b>todas</b> as contas, entradas, cartões, metas, orçamentos e preferências desta conta, em todos os aparelhos. <b>Não dá para desfazer.</b>', 'APAGAR', 'Apagar tudo', async () => {
+    apagando = true;
+    try { await store.apagarTudo(); } finally { apagando = false; }
+    geradosNestaSessao.clear();
+    fecharModal(); trocarTela('inicio'); toast('Todos os dados foram apagados');
+  });
+}
+
+function excluirConta() {
+  confirmarDigitando('Excluir conta', 'Isso apaga todos os seus dados e remove sua conta do app. Sua conta Google não é afetada. <b>Não dá para desfazer.</b> O Google pode pedir para você confirmar o login.', 'EXCLUIR', 'Excluir minha conta', async () => {
+    apagando = true;
+    try { await store.apagarTudo(); await store.excluirConta(); } finally { apagando = false; }
+    L.salvar(null);
+    fecharModal(); toast('Conta excluída');
+  });
+}
+
 // ---------------- Eventos ----------------
 const ACOES = {
-  menu: () => $('#menu').classList.toggle('hidden'),
-  hoje: () => { $('#menu').classList.add('hidden'); ym = C.ymAtual(); mudarMes(0); },
+  hoje: () => { if (ym !== C.ymAtual()) { ym = C.ymAtual(); mudarMes(0); } },
   recorrencias: gerenciarRecorrencias,
-  exportar: () => { $('#menu').classList.add('hidden'); exportar(); },
-  sair: () => { $('#menu').classList.add('hidden'); store.sair(); },
+  exportar: () => exportar(),
+  'exportar-csv': () => exportarCSV(),
+  importar: () => importar(),
+  'apagar-tudo': () => apagarTudo(),
+  'excluir-conta': () => excluirConta(),
+  sair: () => store.sair(),
+  'cfg-bloqueio': () => configBloqueio(),
+  'cfg-tempo': () => configTempo(),
+  'cfg-ocultar': () => {
+    const on = localStorage.getItem('fin-ocultar-abrir') !== '1';
+    localStorage.setItem('fin-ocultar-abrir', on ? '1' : '0'); render();
+  },
+  'cfg-apelido': () => configApelido(),
+  'cfg-inicio': () => configInicio(),
+  'cfg-categorias': () => configCategorias(),
   ir: (id) => trocarTela(id),
   sub: (id) => { sub = id; render(); },
   novo: menuNovo,
@@ -840,7 +1179,6 @@ const ACOES = {
 function ligarEventos() {
   document.addEventListener('click', (e) => {
     const el = e.target.closest('[data-a]');
-    if (!e.target.closest('#menu') && !e.target.closest('[data-a="menu"]')) $('#menu').classList.add('hidden');
     if (!el) return;
     const fn = ACOES[el.dataset.a];
     if (fn) { e.preventDefault(); fn(el.dataset.id, el); }
@@ -852,6 +1190,21 @@ function ligarEventos() {
     ocultar = !ocultar; localStorage.setItem('fin-ocultar', ocultar ? '1' : '0');
     atualizarOlho(); render();
   });
+  // Bloqueio
+  $$('#lock [data-pin]').forEach((b) => b.addEventListener('click', () => teclaPin(b.dataset.pin)));
+  $('#lock-sair').addEventListener('click', () => { L.salvar(null); destravar(); store.sair(); });
+  document.addEventListener('keydown', (e) => {
+    if (!document.body.classList.contains('travado')) return;
+    if (/^\d$/.test(e.key)) teclaPin(e.key);
+    else if (e.key === 'Backspace') teclaPin('del');
+  });
+  document.addEventListener('visibilitychange', () => {
+    const c = L.config();
+    if (!c || !usuario) return;
+    if (document.hidden) escondidoEm = Date.now();
+    else if (escondidoEm && Date.now() - escondidoEm >= (c.minutos ?? 1) * 60000) travar();
+  });
+
   $('#modal-fechar').addEventListener('click', fecharModal);
   $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal') fecharModal(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') fecharModal(); });

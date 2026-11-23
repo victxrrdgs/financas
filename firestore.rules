@@ -5,7 +5,7 @@ service cloud.firestore {
     match /usuarios/{uid}/{colecao}/{docId} {
       allow read, write: if request.auth != null && request.auth.uid == uid
         && colecao in ['contas', 'entradas', 'recorrentes', 'carteiras', 'compras',
-                       'faturas', 'transferencias', 'orcamentos', 'metas'];
+                       'faturas', 'transferencias', 'orcamentos', 'metas', 'config'];
     }
     // Todo o resto fica bloqueado.
     match /{document=**} {

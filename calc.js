@@ -15,13 +15,45 @@ export const CATS = {
   'Cartão de crédito': { e: '💳', c: '#a78bfa' },
   'Outros': { e: '📦', c: '#a1a1aa' },
 };
-export const CATEGORIAS = Object.keys(CATS).filter((k) => k !== 'Cartão de crédito');
-export const catInfo = (k) => CATS[k] || CATS.Outros;
+// Preferências do usuário que afetam os cálculos (definidas por configurar()).
+let INICIO = 1;
+let EXTRAS = {};
+export function configurar(p = {}) {
+  INICIO = Math.min(28, Math.max(1, Number(p.diaInicio) || 1));
+  EXTRAS = {};
+  (p.categorias || []).forEach((c) => { if (c && c.nome) EXTRAS[c.nome] = { e: c.e || '🏷️', c: c.c || '#a1a1aa', custom: true }; });
+}
+export const diaInicio = () => INICIO;
+export const catInfo = (k) => EXTRAS[k] || CATS[k] || CATS.Outros;
+export const listaCategorias = () => [...Object.keys(CATS).filter((k) => k !== 'Cartão de crédito' && k !== 'Outros'), ...Object.keys(EXTRAS), 'Outros'];
 export const CORES = ['#ff6b35', '#8b5cf6', '#ec4899', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#64748b'];
 
 export const pad = (n) => String(n).padStart(2, '0');
 export const hojeISO = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
-export const ymAtual = () => hojeISO().slice(0, 7);
+const isoDe = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+// Mês financeiro de uma data: com início no dia 5, 03/12 pertence a novembro.
+export function mesDe(iso) {
+  if (!iso) return '';
+  const m = iso.slice(0, 7);
+  return Number(iso.slice(8, 10)) >= INICIO ? m : somarMes(m, -1);
+}
+export const noMes = (iso, ym) => mesDe(iso) === ym;
+export const ymAtual = () => mesDe(hojeISO());
+export function periodo(ym) {
+  const ini = diaNoMes(ym, INICIO);
+  if (INICIO === 1) return [ini, diaNoMes(ym, 31)];
+  const [a, m, d] = diaNoMes(somarMes(ym, 1), INICIO).split('-').map(Number);
+  return [ini, isoDe(new Date(a, m - 1, d - 1))];
+}
+export function diasDoPeriodo(ym) {
+  const [ini, fim] = periodo(ym);
+  const out = [];
+  const [a, m, d] = ini.split('-').map(Number);
+  for (let x = new Date(a, m - 1, d); isoDe(x) <= fim; x.setDate(x.getDate() + 1)) out.push(isoDe(x));
+  return out;
+}
+// Data, dentro do mês financeiro `ym`, de algo que acontece todo dia `dia`.
+export const dataNoPeriodo = (ym, dia) => (Number(dia) >= INICIO ? diaNoMes(ym, dia) : diaNoMes(somarMes(ym, 1), dia));
 export const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
 export const soma = (arr) => r2(arr.reduce((s, x) => s + (Number(x.valor) || 0), 0));
 export const vis = (l) => l.filter((x) => !x.excluida);
@@ -127,14 +159,16 @@ export const saldoTotal = (D) => r2(contasBancarias(D).reduce((t, c) => t + sald
 
 // ---------------- Resumo do mês ----------------
 export function pagaveisMes(D, ym) {
-  const contas = vis(D.contas).filter((c) => c.data.startsWith(ym)).map((c) => ({ ...c, tipo: 'conta' }));
-  const fats = faturasMes(D, ym).filter((f) => f.valor > 0 || f.pago);
+  const contas = vis(D.contas).filter((c) => noMes(c.data, ym)).map((c) => ({ ...c, tipo: 'conta' }));
+  // A fatura entra no mês financeiro do seu vencimento.
+  const fats = [-1, 0, 1].flatMap((k) => faturasMes(D, somarMes(ym, k)))
+    .filter((f) => noMes(f.data, ym) && (f.valor > 0 || f.pago));
   return [...contas, ...fats];
 }
 
 export function resumoMes(D, ym) {
   const itens = pagaveisMes(D, ym);
-  const entradas = vis(D.entradas).filter((e) => e.data.startsWith(ym));
+  const entradas = vis(D.entradas).filter((e) => noMes(e.data, ym));
   const pagos = itens.filter((x) => x.pago);
   const abertos = itens.filter((x) => !x.pago);
   const entrou = soma(entradas);
@@ -152,19 +186,19 @@ export function resumoMes(D, ym) {
 export function gastosPorCategoria(D, ym) {
   const m = {};
   const add = (k, v) => { k = k || 'Outros'; m[k] = r2((m[k] || 0) + (Number(v) || 0)); };
-  vis(D.contas).filter((c) => c.data.startsWith(ym)).forEach((c) => add(c.categoria, c.valor));
+  vis(D.contas).filter((c) => noMes(c.data, ym)).forEach((c) => add(c.categoria, c.valor));
   cartoes(D).forEach((card) => {
     D.compras.filter((x) => x.carteiraId === card.id).forEach((cp) => {
-      parcelasDe(cp, card).filter((p) => p.ym === ym).forEach((p) => add(cp.categoria, p.valor));
+      parcelasDe(cp, card).filter((p) => noMes(diaNoMes(p.ym, card.vencimento), ym)).forEach((p) => add(cp.categoria, p.valor));
     });
   });
   return Object.entries(m).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
 }
 
-// Gastos efetivos por dia: contas pagas (pela data do pagamento) e compras no cartão (pela data da compra).
+// Gastos efetivos por data (ISO): contas pagas (pela data do pagamento) e compras no cartão (pela data da compra).
 export function gastosPorDia(D, ym) {
   const m = {};
-  const add = (iso, v) => { if (iso && iso.startsWith(ym)) { const d = Number(iso.slice(8, 10)); m[d] = r2((m[d] || 0) + Number(v || 0)); } };
+  const add = (iso, v) => { if (iso && noMes(iso, ym)) m[iso] = r2((m[iso] || 0) + Number(v || 0)); };
   vis(D.contas).filter((c) => c.pago).forEach((c) => add(c.pagoEm, c.valor));
   D.compras.forEach((cp) => add(cp.data, cp.valor));
   return m;
