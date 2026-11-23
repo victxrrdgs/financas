@@ -1,8 +1,8 @@
-import { criarStore, modoLocal, COLECOES } from './store.js?v=2.4';
-import * as C from './calc.js?v=2.4';
-import * as L from './lock.js?v=2.4';
+import { criarStore, modoLocal, COLECOES } from './store.js?v=2.5';
+import * as C from './calc.js?v=2.5';
+import * as L from './lock.js?v=2.5';
 
-const VERSAO = '2.4';
+const VERSAO = '2.5';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -25,6 +25,9 @@ let apagando = false;
 const prefs = () => D.config.find((x) => x.id === 'prefs') || {};
 const modCom = () => !!prefs().modComissoes;
 let filtroEmpresa = '';
+let diaSel = null;
+let dicasAbertas = false;
+document.addEventListener('toggle', (e) => { if (e.target.matches && e.target.matches('details.dicas')) dicasAbertas = e.target.open; }, true);
 const salvarPrefs = (mud) => { const { id, ...atual } = prefs(); store.definir('config', 'prefs', { ...atual, ...mud }); };
 let paradas = [];
 const geradosNestaSessao = new Set();
@@ -177,11 +180,19 @@ function linhaPagavel(x) {
     <div class="ic" style="--c:${ci.c}">${ci.e}</div>
     <div class="info" data-a="${fat ? 'ver-fatura' : 'editar-conta'}" data-id="${fat ? x.card.id : x.id}">
       <div class="t">${esc(x.descricao)}</div>
-      <div class="m">${C.dataBR(x.data)}${fat ? ` · ${plural(x.itens.length, 'compra', 'compras')}` : ''}${x.recorrenteId ? ' · 🔁' : ''}${cart ? ' · ' + esc(cart.nome) : ''} ${tagVenc(x)}</div>
+      <div class="m">${C.dataBR(x.data)}${fat ? ` · ${plural(x.itens.length, 'compra', 'compras')}${x.saldoAnterior > 0 ? ' · inclui atraso' : ''}${x.rolada ? ' · somada à próxima fatura' : ''}` : ''}${x.recorrenteId ? ' · 🔁' : ''}${cart ? ' · ' + esc(cart.nome) : ''} ${tagVenc(x)}</div>
     </div>
     <div class="v">${fmt(x.valor)}</div>
     <button class="chk ${x.pago ? 'on' : ''}" data-a="pagar" data-tipo="${x.tipo}" data-id="${x.id}" aria-label="${x.pago ? 'Desmarcar pagamento' : 'Marcar como pago'}">✓</button>
   </div>`;
+}
+
+// Lançamentos que contam como gasto num dia (mesma regra de C.gastosPorDia).
+function gastosDoDia(iso) {
+  const l = [];
+  C.vis(D.contas).filter((c) => c.pago && c.pagoEm === iso).forEach((c) => l.push({ d: c.descricao, v: c.valor, cat: c.categoria, o: 'conta paga' }));
+  C.vis(D.compras).filter((p) => p.data === iso).forEach((p) => l.push({ d: p.descricao, v: p.valor, cat: p.categoria, o: (carteira(p.carteiraId)?.nome || 'cartão') + (p.parcelas > 1 ? ` · ${p.parcelas}x` : '') }));
+  return l.sort((a, b) => b.v - a.v);
 }
 
 function heatmap() {
@@ -191,20 +202,76 @@ function heatmap() {
   const offset = new Date(a, m - 1, d0).getDay();
   const vals = Object.values(dias).filter((v) => v > 0).sort((x, y) => x - y);
   const q = (p) => vals[Math.floor((vals.length - 1) * p)] || 0;
-  const nivel = (v) => (!v ? '' : v <= q(.25) ? 'l1' : v <= q(.5) ? 'l2' : v <= q(.8) ? 'l3' : 'l4');
+  const nivel = (v) => (!(v > 0) ? '' : v <= q(.25) ? 'l1' : v <= q(.5) ? 'l2' : v <= q(.8) ? 'l3' : 'l4');
   const hoje = C.hojeISO();
+  if (diaSel && !lista.includes(diaSel)) diaSel = null;
   let cells = '<i class="vz"></i>'.repeat(offset);
   for (const iso of lista) {
-    cells += `<i class="${nivel(dias[iso])} ${iso === hoje ? 'hoje' : ''}" title="${C.dataBR(iso)}: ${fmt(dias[iso] || 0)}"></i>`;
+    cells += `<i class="${nivel(dias[iso])} ${iso === hoje ? 'hoje' : ''} ${iso === diaSel ? 'sel' : ''} ${iso > hoje ? 'fut' : ''}" data-a="dia" data-id="${iso}" title="${C.dataBR(iso)}: ${fmt(dias[iso] || 0)}"><b>${Number(iso.slice(8))}</b></i>`;
   }
   const soma = Object.values(dias).reduce((t, v) => t + v, 0);
-  return `<div class="card g">
-    <div class="lbl">Gastos em ${C.nomeMes(ym)}</div>
-    <div class="val">${fmt(soma)}</div>
-    <div class="sub">Contas pagas e compras no cartão, por dia</div>
+  // Estatísticas do período (até hoje, se for o mês atual)
+  const passados = lista.filter((d) => d <= hoje);
+  const nDias = Math.max(1, passados.length || lista.length);
+  const media = soma / nDias;
+  const maior = Object.entries(dias).sort((x, y) => y[1] - x[1])[0];
+  const semGasto = (passados.length ? passados : lista).filter((d) => !(dias[d] > 0)).length;
+  // Comparação com o mesmo ponto do mês anterior
+  const ant = C.gastosPorDia(D, C.somarMes(ym, -1));
+  const listaAnt = C.diasDoPeriodo(C.somarMes(ym, -1)).slice(0, nDias);
+  const somaAnt = listaAnt.reduce((t, d) => t + (ant[d] || 0), 0);
+  const delta = somaAnt > 0 ? Math.round(((soma - somaAnt) / somaAnt) * 100) : null;
+  // Dia da semana em que mais gasta
+  const sem = [0, 0, 0, 0, 0, 0, 0];
+  Object.entries(dias).forEach(([d, v]) => { const [y, mm, dd] = d.split('-').map(Number); sem[new Date(y, mm - 1, dd).getDay()] += v; });
+  const nomes = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
+  const iSem = sem.indexOf(Math.max(...sem));
+  const det = diaSel ? gastosDoDia(diaSel) : [];
+  return `<div class="card g heatcard">
+    <div class="lbl">Gastos por dia · ${C.nomeMes(ym)}</div>
+    <div class="val">${fmt(soma)} ${delta !== null ? `<span class="delta ${delta > 0 ? 'neg' : 'pos'}">${delta > 0 ? '▲' : '▼'} ${Math.abs(delta)}% vs ${C.nomeMes(C.somarMes(ym, -1), true).toLowerCase()}</span>` : ''}</div>
+    <div class="hstats">
+      <div><span>Média/dia</span><b>${fmt(media)}</b></div>
+      <div><span>Maior gasto</span><b>${maior ? `${fmt(maior[1])}` : '—'}</b><small>${maior ? C.dataBR(maior[0]) : ''}</small></div>
+      <div><span>Dias sem gastar</span><b>${semGasto}</b><small>de ${passados.length || lista.length}</small></div>
+    </div>
     <div class="heat-h"><span>D</span><span>S</span><span>T</span><span>Q</span><span>Q</span><span>S</span><span>S</span></div>
     <div class="heat">${cells}</div>
+    <div class="heat-leg"><span>menos</span><i></i><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i><span>mais</span>
+      ${sem[iSem] > 0 ? `<em>Você gasta mais às ${nomes[iSem]}s</em>` : ''}</div>
+    ${diaSel ? `<div class="dia-det">
+      <div class="dia-h"><b>${C.dataBR(diaSel)}</b><span>${fmt(dias[diaSel] || 0)}</span></div>
+      ${det.length ? det.map((x) => `<div class="dia-l"><span>${C.catInfo(x.cat).e} ${esc(x.d)}<small>${esc(x.o)}</small></span><b>${fmt(x.v)}</b></div>`).join('') : '<div class="sub">Nenhum gasto neste dia 🎉</div>'}
+    </div>` : '<div class="sub" style="margin-top:10px">Toque num dia para ver o que foi gasto.</div>'}
   </div>`;
+}
+
+function cardSaude() {
+  const s = C.saudeFinanceira(D, ym, fmt);
+  const cor = { verde: '🟢', amarelo: '🟡', vermelho: '🔴' };
+  return `<div class="card g saude s-${s.nivel}">
+    <div class="saude-top">
+      <div class="semaforo"><i class="r ${s.nivel === 'vermelho' ? 'on' : ''}"></i><i class="a ${s.nivel === 'amarelo' ? 'on' : ''}"></i><i class="v ${s.nivel === 'verde' ? 'on' : ''}"></i></div>
+      <div style="flex:1;min-width:0"><div class="lbl">Saúde financeira · ${C.nomeMes(ym).toLowerCase()}</div><div class="val">${s.titulo}</div></div>
+      <div class="nota"><b>${s.nota}</b><small>/100</small></div>
+    </div>
+    <div class="barra saude-barra"><div style="width:${s.nota}%"></div></div>
+    <p class="saude-res">${s.resumo}</p>
+    <div class="sinais">${s.sinais.map((x) => `<div class="sinal"><span>${cor[x.n]}</span><div><b>${esc(x.t)}</b><small>${esc(x.d)}</small></div></div>`).join('')}</div>
+    <details class="dicas" ${dicasAbertas ? 'open' : ''}><summary>💡 ${s.dicas.length} dicas para melhorar</summary>
+      ${s.dicas.map((d) => `<div class="dica"><span>${d.e}</span><p>${esc(d.t)}</p></div>`).join('')}
+    </details>
+  </div>`;
+}
+
+function seletorMes(ano) {
+  ano = ano || Number(ym.slice(0, 4));
+  const atual = C.ymAtual();
+  const meses = Array.from({ length: 12 }, (_, i) => `${ano}-${C.pad(i + 1)}`);
+  abrirModal('Escolher mês', `
+    <div class="ano-nav"><button class="ico g" data-a="ano" data-id="${ano - 1}">‹</button><b>${ano}</b><button class="ico g" data-a="ano" data-id="${ano + 1}">›</button></div>
+    <div class="mes-grid">${meses.map((m) => `<button class="${m === ym ? 'sel' : ''} ${m === atual ? 'atual' : ''}" data-a="escolher-mes" data-id="${m}">${C.nomeMes(m, true)}</button>`).join('')}</div>
+    <button class="btn big" data-a="escolher-mes" data-id="${atual}">📅 Ir para o mês atual (${C.rotuloMes(atual).toLowerCase()})</button>`);
 }
 
 // ----- Início -----
@@ -277,8 +344,10 @@ function telaInicio() {
   </div>
   ${cardCom}
 
+  <div class="sec">${cardSaude()}</div>
+
   <div class="sec">
-    <div class="sec-h"><h3>Insights</h3></div>
+    <div class="sec-h"><h3>Destaques do mês</h3></div>
     <div class="scroll-x">${ins.map((i) => `<div class="insight g ${i.tipo}"><span class="e">${i.e}</span><span>${esc(i.t)}</span></div>`).join('')}</div>
   </div>
 
@@ -530,6 +599,8 @@ function telaCartoes() {
       <div class="cc-lbl">Fatura de ${C.nomeMes(ym).toLowerCase()}</div>
       <div class="cc-val">${fmt(f.valor)}</div>
       <div class="cc-meta">Fecha ${C.dataBR(f.fecha)} · vence ${C.dataBR(f.data)} ${status}</div>
+      ${f.saldoAnterior > 0 ? `<div class="cc-meta">Inclui ${fmt(f.saldoAnterior)} da fatura de ${C.nomeMes(f.mesAnterior).toLowerCase()} em atraso${f.jurosEst ? ` + ${fmt(f.jurosEst)} de juros estimados` : ''}</div>` : ''}
+      ${f.rolada ? '<div class="cc-meta">⚠️ Não paga: o valor passa para a próxima fatura, com juros</div>' : ''}
       ${lim ? `<div class="barra"><div style="width:${Math.min(100, Math.round((usado / lim) * 100))}%"></div></div>
         <div class="cc-meta" style="justify-content:space-between"><span>Usado ${fmt(usado)}</span><span>Disponível ${fmt(Math.max(0, lim - usado))}</span></div>` : ''}
       <div class="cc-btns">
@@ -854,6 +925,11 @@ function verFatura(cardId) {
       <div class="cc-lbl" style="margin-top:0">${C.rotuloMes(ym)}</div><div class="cc-val">${fmt(f.valor)}</div>
       <div class="cc-meta">Fecha ${C.dataBR(f.fecha)} · vence ${C.dataBR(f.data)} ${f.pago ? `<span class="tag green">Paga em ${C.dataBR(f.pagoEm)}</span>` : f.valor ? tagVenc(f) : ''}</div>
     </div>
+    ${f.saldoAnterior > 0 ? `<div class="list g" style="margin-top:14px">
+      <div class="row"><div class="ic" style="--c:#fb7185">⏳</div><div class="info"><div class="t">Saldo da fatura de ${C.nomeMes(f.mesAnterior).toLowerCase()} (não paga)</div><div class="m">Venceu sem pagamento e foi somada a esta fatura</div></div><div class="v">${fmt(f.saldoAnterior)}</div></div>
+      ${f.jurosEst ? `<div class="row"><div class="ic" style="--c:#fbbf24">📈</div><div class="info"><div class="t">Juros, multa e IOF (estimativa)</div><div class="m">≈${C.taxaAtraso(f.card).toFixed(1).replace('.', ',')}% sobre o saldo em atraso · o valor real vem na fatura do banco</div></div><div class="v">${fmt(f.jurosEst)}</div></div>` : `<div class="row"><div class="ic" style="--c:#fbbf24">📈</div><div class="info"><div class="t">+ juros do banco</div><div class="m">Cadastre a taxa de juros do cartão (editar cartão) para o app estimar</div></div></div>`}
+    </div>` : ''}
+    ${f.rolada ? '<div class="aviso">⚠️ Esta fatura venceu sem pagamento. O valor já está somado à fatura do mês seguinte, com juros. Pagando a próxima fatura, esta também fica quitada.</div>' : ''}
     <div class="sec" style="margin-top:16px">
       ${f.itens.length ? `<div class="list g">${f.itens.map((p) => {
         const ci = C.catInfo(p.compra.categoria);
@@ -878,8 +954,17 @@ function verFatura(cardId) {
 }
 
 function pagarFatura(f, carteiraId) {
-  if (f.pago) { store.definir('faturas', f.id, { pago: false, pagoEm: null, carteiraId: null, valor: 0 }); toast('Fatura voltou para "a pagar"'); }
-  else { store.definir('faturas', f.id, { pago: true, pagoEm: C.hojeISO(), carteiraId: carteiraId ?? carteiraPadrao(), valor: f.valor }); toast(`${f.descricao} paga`); }
+  if (f.pago) {
+    store.definir('faturas', f.id, { pago: false, pagoEm: null, carteiraId: null, valor: 0 });
+    // Reabre as faturas anteriores que tinham sido quitadas junto com esta.
+    D.faturas.filter((x) => x.quitadaPor === f.id).forEach((x) => store.definir('faturas', x.id, { pago: false, pagoEm: null, carteiraId: null, valor: 0 }));
+    toast('Fatura voltou para "a pagar"');
+  } else {
+    store.definir('faturas', f.id, { pago: true, pagoEm: C.hojeISO(), carteiraId: carteiraId ?? carteiraPadrao(), valor: f.valor });
+    // O saldo das faturas atrasadas estava dentro desta: marca-as como quitadas, sem descontar de novo da conta.
+    (f.anteriores || []).forEach((id) => store.definir('faturas', id, { pago: true, pagoEm: C.hojeISO(), carteiraId: null, valor: 0, quitadaPor: f.id }));
+    toast(`${f.descricao} paga${f.anteriores?.length ? ' (inclui o atraso)' : ''}`);
+  }
 }
 
 function formTransf(t) {
@@ -931,6 +1016,8 @@ function formCarteira(c, tipoPadrao) {
         <div><label>Dia do fechamento</label><input name="fechamento" type="number" min="1" max="31" value="${c.fechamento || 1}"></div>
         <div><label>Dia do vencimento</label><input name="vencimento" type="number" min="1" max="31" value="${c.vencimento || 10}"></div>
       </div>
+      <label>Juros do rotativo (% ao mês, opcional)</label><input name="jurosAtraso" inputmode="decimal" placeholder="Ex.: 15,99" value="${c.jurosAtraso ? String(c.jurosAtraso).replace('.', ',') : ''}">
+      <div class="aviso">Está na fatura do banco ("Juros do rotativo" ou "Juros máximos do contrato"). Serve para o app estimar os juros quando uma fatura atrasa e passa para o mês seguinte.</div>
     </div>
     ${botoes(!novo)}
   </form>`);
@@ -949,7 +1036,7 @@ function formCarteira(c, tipoPadrao) {
     if (tipo === 'cartao') {
       const fe = Number(f.get('fechamento')); const ve = Number(f.get('vencimento'));
       if (!(fe >= 1 && fe <= 31 && ve >= 1 && ve <= 31)) { toast('Dias de fechamento e vencimento entre 1 e 31'); return; }
-      Object.assign(dados, { limite: C.parseValor(f.get('limite')) || 0, fechamento: fe, vencimento: ve });
+      Object.assign(dados, { limite: C.parseValor(f.get('limite')) || 0, fechamento: fe, vencimento: ve, jurosAtraso: C.parseValor(f.get('jurosAtraso')) || 0 });
     } else {
       // Aceita o sinal pelo seletor ou digitado ("-1.200,00").
       const v = C.parseValor(f.get('saldoInicial')) || 0;
@@ -1387,6 +1474,10 @@ function excluirConta() {
 // ---------------- Eventos ----------------
 const ACOES = {
   hoje: () => { if (ym !== C.ymAtual()) { ym = C.ymAtual(); mudarMes(0); } },
+  'mes-picker': () => seletorMes(),
+  ano: (id) => seletorMes(Number(id)),
+  'escolher-mes': (id) => { fecharModal(); if (id !== ym) { ym = id; diaSel = null; mudarMes(0); } },
+  dia: (id) => { diaSel = diaSel === id ? null : id; render(); },
   recorrencias: gerenciarRecorrencias,
   exportar: () => exportar(),
   'exportar-csv': () => exportarCSV(),

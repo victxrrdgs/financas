@@ -113,7 +113,18 @@ export function parcelasDe(compra, card) {
   return Array.from({ length: n }, (_, i) => ({ ym: somarMes(m0, i), i: i + 1, n, valor: (base + (i === 0 ? resto : 0)) / 100 }));
 }
 
-export function faturaDe(D, card, ym) {
+// Primeiro mês com fatura neste cartão (para saber até onde olhar saldos em atraso).
+function primeiroMesCartao(D, card) {
+  let m = null;
+  vis(D.compras).filter((x) => x.carteiraId === card.id).forEach((cp) => { const f = mesFatura(card, cp.data); if (!m || f < m) m = f; });
+  return m;
+}
+// Taxa mensal estimada sobre saldo em atraso: juros do rotativo do cartão + multa (2%) + mora (1%) + IOF (~0,4%).
+export const taxaAtraso = (card) => (Number(card.jurosAtraso) > 0 ? Number(card.jurosAtraso) + 3.4 : 0);
+
+// Fatura do mês. Se a fatura anterior venceu sem pagamento, o saldo dela entra nesta, como faz o banco,
+// mais os juros estimados (quando o cartão tem a taxa cadastrada).
+export function faturaDe(D, card, ym, prof = 0) {
   const itens = [];
   vis(D.compras).filter((x) => x.carteiraId === card.id).forEach((cp) => {
     parcelasDe(cp, card).filter((p) => p.ym === ym).forEach((p) => itens.push({ ...p, compra: cp }));
@@ -121,10 +132,26 @@ export function faturaDe(D, card, ym) {
   itens.sort((a, b) => b.compra.data.localeCompare(a.compra.data));
   const id = `${card.id}_${ym}`;
   const doc = D.faturas.find((f) => f.id === id) || {};
+  let saldoAnterior = 0; let jurosEst = 0; let anteriores = []; let mesAnterior = null;
+  const ini = primeiroMesCartao(D, card);
+  if (ini && somarMes(ym, -1) >= ini && prof < 36) {
+    const prev = faturaDe(D, card, somarMes(ym, -1), prof + 1);
+    if (!prev.pago && prev.valor > 0 && diasAte(prev.data) < 0) {
+      saldoAnterior = prev.valor;
+      jurosEst = r2(saldoAnterior * taxaAtraso(card) / 100);
+      anteriores = [prev.id, ...prev.anteriores];
+      mesAnterior = prev.ym;
+    }
+  }
+  const valorItens = soma(itens);
+  const valor = r2(valorItens + saldoAnterior + jurosEst);
+  const data = diaNoMes(ym, card.vencimento);
+  const pago = !!doc.pago;
   return {
-    tipo: 'fatura', id, card, ym, itens, valor: soma(itens),
-    data: diaNoMes(ym, card.vencimento), fecha: diaNoMes(somarMes(ym, Number(card.vencimento) <= Number(card.fechamento) ? -1 : 0), card.fechamento),
-    pago: !!doc.pago, pagoEm: doc.pagoEm || null, carteiraId: doc.carteiraId || null, valorPago: doc.valor || 0,
+    tipo: 'fatura', id, card, ym, itens, valorItens, saldoAnterior, jurosEst, anteriores, mesAnterior, valor,
+    data, fecha: diaNoMes(somarMes(ym, Number(card.vencimento) <= Number(card.fechamento) ? -1 : 0), card.fechamento),
+    pago, pagoEm: doc.pagoEm || null, carteiraId: doc.carteiraId || null, valorPago: doc.valor || 0, quitadaPor: doc.quitadaPor || null,
+    rolada: !pago && valor > 0 && diasAte(data) < 0,
     descricao: `Fatura ${card.nome}`, categoria: 'Cartão de crédito',
   };
 }
@@ -275,6 +302,105 @@ export function rankingComissoes(D, campo) {
     m[k] = r2((m[k] || 0) + v);
   });
   return Object.entries(m).sort((a, b) => b[1] - a[1]);
+}
+
+// ---------------- Saúde financeira ----------------
+const RX_ENCARGO = /juro|encargo|multa|iof|rotativo|renegocia|refinanc|pendente|financiad|ajuste/i;
+
+// Tudo que já venceu e não foi pago, olhando até 12 meses para trás.
+export function emAtraso(D) {
+  const vistos = new Set(); const out = [];
+  for (let k = 12; k >= 0; k--) {
+    pagaveisMes(D, somarMes(ymAtual(), -k)).forEach((x) => {
+      if (!x.pago && diasAte(x.data) < 0 && !vistos.has(x.id)) { vistos.add(x.id); out.push(x); }
+    });
+  }
+  // Uma fatura atrasada já está somada na fatura seguinte do mesmo cartão: conta só a mais recente.
+  return out.filter((x) => x.tipo !== 'fatura' || !out.some((y) => y.tipo === 'fatura' && y.card.id === x.card.id && y.ym > x.ym));
+}
+
+export function saudeFinanceira(D, ym, fmt) {
+  const r = resumoMes(D, ym);
+  const sinais = []; const dicas = [];
+  const pct = (a, b) => Math.round((a / b) * 100);
+
+  // 1. Atrasos
+  const atr = emAtraso(D);
+  const vAtr = soma(atr);
+  if (atr.length) {
+    sinais.push({ n: 'vermelho', t: 'Contas em atraso', d: `${fmt(vAtr)} em ${atr.length} ${atr.length === 1 ? 'item vencido' : 'itens vencidos'}. Juros e multas crescem a cada mês.` });
+    dicas.push({ e: '🚨', t: 'Prioridade nº 1: estancar os juros. Pague primeiro o que cobra mais caro: rotativo do cartão (≈16% ao mês) e cheque especial. Se não der para quitar tudo, peça parcelamento da fatura: os juros costumam ser menores que os do rotativo.' });
+    dicas.push({ e: '📞', t: 'Antes de pagar, veja as opções de renegociação no app de cada banco ("Solução de dívidas", "Renegociar"): costuma haver descontos para quitar à vista.' });
+  } else sinais.push({ n: 'verde', t: 'Nada em atraso', d: 'Todas as contas vencidas estão pagas.' });
+
+  // 2. Comprometimento da renda
+  if (r.entrou <= 0) {
+    sinais.push({ n: 'amarelo', t: 'Sem entradas no mês', d: `As contas do mês somam ${fmt(r.total)}, mas nenhuma entrada foi registrada.` });
+    dicas.push({ e: '💰', t: 'Registre suas entradas (salário, benefícios, comissões) para o app calcular quanto sobra de verdade.' });
+  } else {
+    const c = pct(r.total, r.entrou);
+    const n = c > 100 ? 'vermelho' : c > 80 ? 'amarelo' : 'verde';
+    sinais.push({ n, t: `Contas = ${c}% da renda`, d: `${fmt(r.total)} de contas para ${fmt(r.entrou)} de entradas${c > 100 ? `: faltam ${fmt(r.total - r.entrou)}` : ''}.` });
+    if (n !== 'verde') dicas.push({ e: '✂️', t: `Suas contas consomem ${c}% do que entrou. O saudável é até 70%. Corte primeiro o variável (restaurantes, delivery, compras) e evite novas parcelas até equilibrar.` });
+  }
+
+  // 3. Saldo das contas
+  const bancos = contasBancarias(D);
+  const negativas = bancos.filter((b) => saldoCarteira(D, b) < 0);
+  if (bancos.length) {
+    if (negativas.length) {
+      sinais.push({ n: 'vermelho', t: 'Conta no negativo', d: negativas.map((b) => `${b.nome}: ${fmt(saldoCarteira(D, b))}`).join(' · ') });
+      dicas.push({ e: '🏦', t: `Cubra o saldo negativo (${negativas.map((b) => b.nome).join(', ')}) assim que receber: o cheque especial está entre os juros mais caros do mercado.` });
+    } else sinais.push({ n: 'verde', t: 'Contas no positivo', d: `Saldo total ${fmt(saldoTotal(D))}.` });
+  }
+
+  // 4. Limite dos cartões
+  const cards = cartoes(D).filter((c) => Number(c.limite) > 0);
+  if (cards.length) {
+    const lim = cards.reduce((t, c) => t + Number(c.limite), 0);
+    const uso = cards.reduce((t, c) => t + limiteUsado(D, c), 0);
+    const p = pct(uso, lim);
+    const estourados = cards.filter((c) => limiteUsado(D, c) > Number(c.limite));
+    const n = p >= 90 || estourados.length ? 'vermelho' : p >= 60 ? 'amarelo' : 'verde';
+    sinais.push({ n, t: `Limite dos cartões: ${p}% usado`, d: `${fmt(uso)} de ${fmt(lim)}${estourados.length ? ` · acima do limite: ${estourados.map((c) => c.nome).join(', ')}` : ''}.` });
+    if (n !== 'verde') dicas.push({ e: '💳', t: `Você usa ${p}% do limite. Segure compras novas no cartão até ficar abaixo de 30%: isso também ajuda seu score de crédito.` });
+  }
+  if (cartoes(D).length >= 4) dicas.push({ e: '🗂️', t: `Você tem ${cartoes(D).length} cartões. Concentrar os gastos em 1 ou 2 (e cancelar os que estão quitados) facilita muito o controle das faturas.` });
+
+  // 5. Juros e encargos pagos no mês
+  const encargos = r.itens.flatMap((x) => (x.tipo === 'fatura' ? x.itens.map((p) => ({ d: p.compra.descricao, v: p.valor })) : [{ d: x.descricao, v: x.valor }]))
+    .filter((x) => RX_ENCARGO.test(x.d) && x.v > 0).reduce((t, x) => t + x.v, 0)
+    + r.itens.filter((x) => x.tipo === 'fatura').reduce((t, f) => t + (f.jurosEst || 0), 0);
+  if (encargos > 0) {
+    const n = r.entrou > 0 && encargos > r.entrou * 0.1 ? 'vermelho' : 'amarelo';
+    sinais.push({ n, t: 'Juros, multas e renegociações', d: `${fmt(encargos)} das contas deste mês são juros, encargos ou parcelas de dívida antiga.` });
+    dicas.push({ e: '📉', t: `${fmt(encargos)} deste mês vão para juros e dívidas antigas, dinheiro que não volta. Zerar os atrasos é o melhor "investimento" que você pode fazer agora.` });
+  }
+
+  // 6. Assinaturas
+  const hoje = ymAtual();
+  const recs = D.recorrentes.filter((x) => (!x.fim || x.fim >= hoje) && x.inicio <= hoje && (x.tipo === 'compra' || x.categoria === 'Assinaturas'));
+  const vAss = recs.reduce((t, x) => t + Number(x.valor || 0), 0);
+  if (recs.length) {
+    const n = r.entrou > 0 && vAss > r.entrou * 0.1 ? 'amarelo' : 'verde';
+    sinais.push({ n, t: `Assinaturas: ${fmt(vAss)}/mês`, d: `${recs.length} ativas: ${recs.map((x) => x.descricao.split(' ·')[0].split(' (')[0]).join(', ')}.` });
+    dicas.push({ e: '📺', t: `Assinaturas somam ${fmt(vAss)} por mês (${fmt(vAss * 12)} por ano). Revise as que você usa pouco e anote renovações anuais para não renovar sem querer.` });
+  }
+
+  // Nota e nível geral
+  const peso = { verde: 100, amarelo: 55, vermelho: 10 };
+  const nota = sinais.length ? Math.round(sinais.reduce((t, s) => t + peso[s.n], 0) / sinais.length) : 50;
+  const critico = sinais.some((s) => s.n === 'vermelho' && /atraso|renda|negativo/i.test(s.t));
+  const nivel = critico || nota < 45 ? 'vermelho' : nota < 75 ? 'amarelo' : 'verde';
+  const resumo = {
+    vermelho: 'Situação delicada. Há contas em atraso, saldo negativo ou gastos maiores que a renda. O foco agora é parar os juros e não criar dívidas novas.',
+    amarelo: 'Atenção. As contas estão sob controle, mas a margem está apertada. Pequenos cortes já fazem diferença.',
+    verde: 'Finanças saudáveis. As contas cabem na renda: é a hora de construir reserva e investir.',
+  }[nivel];
+  if (nivel !== 'vermelho') dicas.push({ e: '🛟', t: 'Guarde de 10% a 20% de cada entrada numa reserva de emergência, até juntar 6 meses das suas despesas. Crie uma meta em Planejar para acompanhar.' });
+  dicas.push({ e: '📐', t: 'Regra 50-30-20: 50% da renda para necessidades, 30% para desejos e 20% para quitar dívidas ou poupar. Enquanto houver dívida cara, esses 20% vão para ela.' });
+  const titulo = { vermelho: 'Situação delicada', amarelo: 'Atenção', verde: 'Saudável' }[nivel];
+  return { nivel, nota, titulo, resumo, sinais, dicas };
 }
 
 export function insights(D, ym, fmt, opts = {}) {
