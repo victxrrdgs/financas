@@ -210,15 +210,27 @@ export function resumoMes(D, ym) {
   };
 }
 
+// ---------------- Dividir contas ----------------
+// Os gastos contam só "a minha parte": um lançamento dividido (parteOutro) entra pela fração que é minha,
+// e os itens divididos sem lançamento próprio chegam em D.divGastos ({ data, valor, categoria }) já com a minha parte.
+// Saldo das carteiras, faturas e "pago" continuam com o valor cheio: é o dinheiro que de fato saiu.
+export const minhaFracao = (x) => (Number(x.parteOutro) > 0 && Number(x.valor) > 0 ? Math.max(0, 1 - Number(x.parteOutro) / Number(x.valor)) : 1);
+
+// Item dividido: { valor, parte, pagou }. "parte" é quanto quem NÃO pagou deve a quem pagou.
+// Saldo positivo = a outra pessoa me deve; negativo = eu devo.
+export const saldoDivisao = (itens, uid) => r2(itens.filter((x) => !x.pago).reduce((t, x) => t + (x.pagou === uid ? 1 : -1) * (Number(x.parte) || 0), 0));
+export const minhaParteItem = (x, uid) => r2(x.pagou === uid ? (Number(x.valor) || 0) - (Number(x.parte) || 0) : Number(x.parte) || 0);
+
 export function gastosPorCategoria(D, ym) {
   const m = {};
   const add = (k, v) => { k = k || 'Outros'; m[k] = r2((m[k] || 0) + (Number(v) || 0)); };
-  vis(D.contas).filter((c) => noMes(c.data, ym)).forEach((c) => add(c.categoria, c.valor));
+  vis(D.contas).filter((c) => noMes(c.data, ym)).forEach((c) => add(c.categoria, c.valor * minhaFracao(c)));
   cartoes(D).forEach((card) => {
     vis(D.compras).filter((x) => x.carteiraId === card.id).forEach((cp) => {
-      parcelasDe(cp, card).filter((p) => noMes(diaNoMes(p.ym, card.vencimento), ym)).forEach((p) => add(cp.categoria, p.valor));
+      parcelasDe(cp, card).filter((p) => noMes(diaNoMes(p.ym, card.vencimento), ym)).forEach((p) => add(cp.categoria, p.valor * minhaFracao(cp)));
     });
   });
+  (D.divGastos || []).filter((x) => noMes(x.data, ym)).forEach((x) => add(x.categoria, x.valor));
   return Object.entries(m).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
 }
 
@@ -226,8 +238,9 @@ export function gastosPorCategoria(D, ym) {
 export function gastosPorDia(D, ym) {
   const m = {};
   const add = (iso, v) => { if (iso && noMes(iso, ym)) m[iso] = r2((m[iso] || 0) + Number(v || 0)); };
-  vis(D.contas).filter((c) => c.pago).forEach((c) => add(c.pagoEm, c.valor));
-  vis(D.compras).forEach((cp) => add(cp.data, cp.valor));
+  vis(D.contas).filter((c) => c.pago).forEach((c) => add(c.pagoEm, c.valor * minhaFracao(c)));
+  vis(D.compras).forEach((cp) => add(cp.data, cp.valor * minhaFracao(cp)));
+  (D.divGastos || []).forEach((x) => add(x.data, x.valor));
   return m;
 }
 

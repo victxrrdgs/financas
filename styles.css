@@ -427,3 +427,10 @@ body.travado #app, body.travado #modal { display: none !important; }
   #abertura { display: none; }
   .abrindo .top, .abrindo main, .abrindo .login-card, .abrindo .dock, .abrindo .fab { animation: none; }
 }
+
+/* Dividir contas */
+.div-hero .val { font-size: 2rem; }
+.div-acoes { display: flex; gap: 8px; margin-top: 14px; }
+.div-acoes .btn { padding: 12px 10px; font-size: .88rem; }
+.row.div-novo { background: rgba(251, 191, 36, .07); }
+.cod { font-family: ui-monospace, monospace; letter-spacing: .08em; color: var(--text); }

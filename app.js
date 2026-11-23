@@ -1,9 +1,9 @@
-import { criarStore, modoLocal, COLECOES } from './store.js?v=2.8';
-import * as C from './calc.js?v=2.8';
-import * as P from './planos.js?v=2.8';
-import * as L from './lock.js?v=2.8';
+import { criarStore, modoLocal, COLECOES } from './store.js?v=2.9';
+import * as C from './calc.js?v=2.9';
+import * as P from './planos.js?v=2.9';
+import * as L from './lock.js?v=2.9';
 
-const VERSAO = '2.8';
+const VERSAO = '2.9';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -93,6 +93,13 @@ function mostrarApp() {
     gerarRecorrentes();
     agendarRender();
   }));
+  paradas.push(ouvirConexoes());
+  // Link de convite para dividir contas (?convite=código).
+  const conv = new URLSearchParams(location.search).get('convite');
+  if (conv) {
+    const u = new URL(location.href); u.searchParams.delete('convite'); history.replaceState(null, '', u);
+    setTimeout(() => abrirConvite(conv.toLowerCase()), 1800);
+  }
   agendarRender();
 }
 
@@ -137,7 +144,7 @@ function render() {
   $('#avatar').classList.toggle('ativo', tela === 'conta');
   $$('.dock [data-tela]').forEach((b) => b.classList.toggle('active', b.dataset.tela === tela));
   const el = $('#conteudo');
-  const html = { inicio: telaInicio, lanc: telaLanc, planejar: telaPlanejar, relatorios: telaRelatorios, conta: telaConta, dividas: telaDividas, fluxo: telaFluxo }[tela]();
+  const html = { inicio: telaInicio, lanc: telaLanc, planejar: telaPlanejar, relatorios: telaRelatorios, conta: telaConta, dividas: telaDividas, fluxo: telaFluxo, dividir: telaDividir }[tela]();
   el.innerHTML = html;
   animarHero();
 }
@@ -183,7 +190,7 @@ function linhaPagavel(x) {
     <div class="ic" style="--c:${ci.c}">${ci.e}</div>
     <div class="info" data-a="${fat ? 'ver-fatura' : 'editar-conta'}" data-id="${fat ? x.card.id : x.id}">
       <div class="t">${esc(x.descricao)}</div>
-      <div class="m">${C.dataBR(x.data)}${fat ? ` · ${plural(x.itens.length, 'compra', 'compras')}${x.saldoAnterior > 0 ? ' · inclui atraso' : ''}${x.rolada ? ' · somada à próxima fatura' : ''}` : ''}${x.recorrenteId ? ' · 🔁' : ''}${cart ? ' · ' + esc(cart.nome) : ''} ${tagVenc(x)}</div>
+      <div class="m">${C.dataBR(x.data)}${fat ? ` · ${plural(x.itens.length, 'compra', 'compras')}${x.saldoAnterior > 0 ? ' · inclui atraso' : ''}${x.rolada ? ' · somada à próxima fatura' : ''}` : ''}${x.recorrenteId ? ' · 🔁' : ''}${x.parteOutro > 0 ? ' · 🤝' : ''}${cart ? ' · ' + esc(cart.nome) : ''} ${tagVenc(x)}</div>
     </div>
     <div class="v">${fmt(x.valor)}</div>
     <button class="chk ${x.pago ? 'on' : ''}" data-a="pagar" data-tipo="${x.tipo}" data-id="${x.id}" aria-label="${x.pago ? 'Desmarcar pagamento' : 'Marcar como pago'}">✓</button>
@@ -193,8 +200,13 @@ function linhaPagavel(x) {
 // Lançamentos que contam como gasto num dia (mesma regra de C.gastosPorDia).
 function gastosDoDia(iso) {
   const l = [];
-  C.vis(D.contas).filter((c) => c.pago && c.pagoEm === iso).forEach((c) => l.push({ d: c.descricao, v: c.valor, cat: c.categoria, o: 'conta paga' }));
-  C.vis(D.compras).filter((p) => p.data === iso).forEach((p) => l.push({ d: p.descricao, v: p.valor, cat: p.categoria, o: (carteira(p.carteiraId)?.nome || 'cartão') + (p.parcelas > 1 ? ` · ${p.parcelas}x` : '') }));
+  const dv = (x) => (x.parteOutro > 0 ? ' · 🤝 sua parte' : '');
+  C.vis(D.contas).filter((c) => c.pago && c.pagoEm === iso).forEach((c) => l.push({ d: c.descricao, v: C.r2(c.valor * C.minhaFracao(c)), cat: c.categoria, o: 'conta paga' + dv(c) }));
+  C.vis(D.compras).filter((p) => p.data === iso).forEach((p) => l.push({ d: p.descricao, v: C.r2(p.valor * C.minhaFracao(p)), cat: p.categoria, o: (carteira(p.carteiraId)?.nome || 'cartão') + (p.parcelas > 1 ? ` · ${p.parcelas}x` : '') + dv(p) }));
+  divItens.filter((x) => x.data === iso && !(x.criadoPor === usuario.uid && x.lancado)).forEach((x) => {
+    const v = C.minhaParteItem(x, usuario.uid);
+    if (v > 0) l.push({ d: x.descricao, v, cat: x.categoria, o: `🤝 sua parte com ${nomeOutro()}` });
+  });
   return l.sort((a, b) => b.v - a.v);
 }
 
@@ -349,6 +361,7 @@ function telaInicio() {
     <div class="barra-lbl"><span>${r.pct}% das contas pagas</span><span>${r.vencidas.length ? `<span class="neg">${plural(r.vencidas.length, 'vencida', 'vencidas')}</span>` : 'nenhuma vencida'}</span></div>
   </div>
   ${cardCom}
+  ${cardDividir()}
 
   <div class="sec">${cardSaude()}</div>
 
@@ -821,29 +834,36 @@ function formConta(c) {
     ${C.contasBancarias(D).length ? `<label>Pagar com</label><select name="carteiraId">${optsCarteiras(c.carteiraId)}</select>` : ''}
     <label class="chk-l"><input type="checkbox" name="pago" ${c.pago ? 'checked' : ''}> Já está paga</label>
     ${novo ? '<label class="chk-l"><input type="checkbox" name="repetir"> Repetir todo mês</label>' : ''}
+    ${blocoDividir(c)}
     ${blocoRecorrente(rec)}
     ${botoes(!novo)}
   </form>`);
   ligarSugestoes($('#f'));
+  ligarDivisao($('#f'), () => ({ nome: nomeOutro(), euDevo: false }));
   $('#f').addEventListener('submit', (ev) => {
     ev.preventDefault();
     const f = new FormData(ev.target);
     const valor = lerValor(f); if (valor === null) return;
+    const div = lerDividir(f, valor); if (div === false) return;
     const pago = f.get('pago') === 'on';
     const carteiraId = f.get('carteiraId') || null;
     if (carteiraId) localStorage.setItem('fin-ultima-carteira', carteiraId);
     const dados = { descricao: f.get('descricao').trim(), valor, data: f.get('data'), categoria: f.get('categoria'), carteiraId, pago, pagoEm: pago ? (c.pagoEm || C.hojeISO()) : null };
-    if (novo && f.get('repetir') === 'on') {
-      const recId = store.novoId(); const mes = C.mesDe(dados.data);
+    const repetir = novo && f.get('repetir') === 'on';
+    const recId = repetir ? store.novoId() : null; const mes = C.mesDe(dados.data);
+    const id = repetir ? `${recId}_${mes}` : novo ? store.novoId() : c.id;
+    // A divisão vale só para este lançamento (não para os próximos meses da recorrência).
+    Object.assign(dados, camposDividir('contas', id, dados, novo ? null : c, div));
+    if (repetir) {
       store.definir('recorrentes', recId, { tipo: 'conta', descricao: dados.descricao, valor, categoria: dados.categoria, carteiraId, dia: Number(dados.data.slice(8, 10)), inicio: mes, fim: null });
-      store.definir('contas', `${recId}_${mes}`, { ...dados, recorrenteId: recId });
-      geradosNestaSessao.add(`${recId}_${mes}`);
-    } else if (novo) store.adicionar('contas', dados);
+      store.definir('contas', id, { ...dados, recorrenteId: recId });
+      geradosNestaSessao.add(id);
+    } else if (novo) store.definir('contas', id, dados);
     else store.atualizar('contas', c.id, dados);
     fecharModal();
     toast(C.mesDe(dados.data) !== ym ? `Salva em ${C.rotuloMes(C.mesDe(dados.data))}` : novo ? 'Conta adicionada' : 'Conta atualizada');
   });
-  ligarExcluir(() => (c.recorrenteId ? store.atualizar('contas', c.id, { excluida: true }) : store.remover('contas', c.id)));
+  ligarExcluir(() => { desfazerDivisao(c); return c.recorrenteId ? store.atualizar('contas', c.id, { excluida: true }) : store.remover('contas', c.id); });
   ligarParar();
 }
 
@@ -899,6 +919,7 @@ function formCompra(cp, cardId) {
     </div>
     ${novo ? '<label class="chk-l"><input type="checkbox" name="repetir"> Assinatura: repetir todo mês neste cartão</label>' : ''}
     <div class="aviso" id="prev-parc"></div>
+    ${blocoDividir(cp)}
     ${blocoRecorrente(cp.recorrenteId ? D.recorrentes.find((r) => r.id === cp.recorrenteId) : null)}
     ${botoes(!novo)}
   </form>`);
@@ -912,23 +933,28 @@ function formCompra(cp, cardId) {
   };
   form.addEventListener('input', prev); prev();
   ligarSugestoes(form);
+  ligarDivisao(form, () => ({ nome: nomeOutro(), euDevo: false }));
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();
     const f = new FormData(form);
     const valor = lerValor(f); if (valor === null) return;
+    const div = lerDividir(f, valor); if (div === false) return;
     const dados = { descricao: f.get('descricao').trim(), valor, data: f.get('data'), parcelas: Number(f.get('parcelas')), carteiraId: f.get('carteiraId'), categoria: f.get('categoria') };
     if (novo && f.get('repetir') === 'on') {
       if (dados.parcelas > 1) { toast('Assinatura precisa ser à vista'); return; }
       const recId = store.novoId(); const mes = C.mesDe(dados.data);
+      Object.assign(dados, camposDividir('compras', `${recId}_${mes}`, dados, null, div));
       store.definir('recorrentes', recId, { tipo: 'compra', descricao: dados.descricao, valor, categoria: dados.categoria, carteiraId: dados.carteiraId, dia: Number(dados.data.slice(8, 10)), inicio: mes, fim: null });
       store.definir('compras', `${recId}_${mes}`, { ...dados, recorrenteId: recId });
       geradosNestaSessao.add(`${recId}_${mes}`);
       fecharModal(); toast('🔁 Assinatura criada: lança todo mês neste cartão'); return;
     }
-    if (novo) store.adicionar('compras', dados); else store.atualizar('compras', cp.id, dados);
+    const id = novo ? store.novoId() : cp.id;
+    Object.assign(dados, camposDividir('compras', id, dados, novo ? null : cp, div));
+    if (novo) store.definir('compras', id, dados); else store.atualizar('compras', cp.id, dados);
     fecharModal(); toast(novo ? 'Compra registrada' : 'Compra atualizada');
   });
-  ligarExcluir(() => (cp.recorrenteId ? store.atualizar('compras', cp.id, { excluida: true }) : store.remover('compras', cp.id)));
+  ligarExcluir(() => { desfazerDivisao(cp); return cp.recorrenteId ? store.atualizar('compras', cp.id, { excluida: true }) : store.remover('compras', cp.id); });
   ligarParar();
 }
 
@@ -1210,6 +1236,10 @@ function telaConta() {
     ${linhaConta('recorrencias', '🔁', '#818cf8', 'Recorrências', seta(String(D.recorrentes.filter((r) => !r.fim || r.fim >= C.ymAtual()).length)))}
   </div></div>
 
+  <div class="sec"><div class="sec-h"><h3>Pessoas</h3></div><div class="list g">
+    ${linhaConta('ir-dividir', '🤝', '#2dd4bf', 'Dividir contas', seta(conexao() ? esc(nomeOutro()) + (novosDiv(Number(localStorage.getItem(vistoKey(conexao().id))) || 0).length ? ' · <span class="tag amber">novo</span>' : '') : 'Convidar'))}
+  </div></div>
+
   <div class="sec"><div class="sec-h"><h3>Módulos</h3></div><div class="list g">
     ${linhaConta('cfg-mod-comissoes', '💼', '#fbbf24', 'Comissões de vendas', `<span class="sw ${modCom() ? 'on' : ''}"></span>`)}
     ${modCom() ? linhaConta('cfg-percentual', '％', '#fbbf24', 'Comissão padrão', seta(`${String(Number(p.percentualComissao) || 1).replace('.', ',')}%`)) : ''}
@@ -1447,7 +1477,7 @@ async function exportarPlanilha() {
   gerandoPlanilha = true;
   toast('Gerando planilha…');
   try {
-    const X = await import('./planilha.js?v=2.8');
+    const X = await import('./planilha.js?v=2.9');
     const { blob, lancamentos } = await X.gerarPlanilha({ D, ym, nomeCarteira: (id) => carteira(id)?.nome || '', usuario: prefs().apelido || (usuario.displayName || '').split(' ')[0] });
     baixar(`financas-${ym}.xlsx`, blob, blob.type);
     toast(`Planilha de ${C.rotuloMes(ym).toLowerCase()} pronta · ${plural(lancamentos, 'lançamento', 'lançamentos')}`);
@@ -1551,8 +1581,9 @@ function resumoSemanal() {
   const s0 = iso(ini); const sAnt = iso(new Date(ini.getFullYear(), ini.getMonth(), ini.getDate() - 7));
   const dia = Math.round((new Date(a, m - 1, d) - ini) / 86400000);
   const fimAnt = iso(new Date(ini.getFullYear(), ini.getMonth(), ini.getDate() - 7 + dia));
-  const total = (de, ate) => C.vis(D.contas).filter((c) => c.pago && c.pagoEm >= de && c.pagoEm <= ate).reduce((t, c) => t + Number(c.valor), 0)
-    + C.vis(D.compras).filter((p) => p.data >= de && p.data <= ate && !p.recorrenteId).reduce((t, p) => t + Number(p.valor), 0);
+  const total = (de, ate) => C.vis(D.contas).filter((c) => c.pago && c.pagoEm >= de && c.pagoEm <= ate).reduce((t, c) => t + Number(c.valor) * C.minhaFracao(c), 0)
+    + C.vis(D.compras).filter((p) => p.data >= de && p.data <= ate && !p.recorrenteId).reduce((t, p) => t + Number(p.valor) * C.minhaFracao(p), 0)
+    + (D.divGastos || []).filter((x) => x.data >= de && x.data <= ate).reduce((t, x) => t + x.valor, 0);
   const agora = total(s0, hoje); const antes = total(sAnt, fimAnt);
   if (!agora && !antes) return [];
   const dif = antes ? Math.round(((agora - antes) / antes) * 100) : null;
@@ -1830,6 +1861,347 @@ function importarExtrato() {
 }
 
 // Atalhos do ícone do app (?acao=...)
+// ---------------- Dividir contas ----------------
+// Duas contas Google conectadas por convite. Os itens ficam em conexoes/{id}/itens, que os dois leem.
+// "parte" de um item = quanto quem não pagou deve a quem pagou.
+let conexoes = [];
+let divItens = [];
+let divAcertos = [];
+let divCid = null;
+let pararDiv = null;
+let divVistoAntes = 0;
+let divVoltar = 'conta';
+const meuNome = () => (prefs().apelido || (usuario.displayName || '').split(' ')[0] || 'Alguém').slice(0, 40);
+const conexao = () => conexoes[0] || null;
+const conexaoAtiva = () => { const c = conexao(); return c && c.membros.length === 2 ? c : null; };
+const outroDe = (c) => c.membros.find((x) => x !== usuario.uid) || c.saiu;
+const nomeOutro = (c = conexao()) => (c && c.nomes && c.nomes[outroDe(c)]) || 'a outra pessoa';
+const vistoKey = (cid) => 'fin-div-visto-' + cid;
+const novosDiv = (desde) => divItens.filter((x) => x.criadoPor !== usuario.uid && !x.pago && (x.criadoEm || 0) > desde);
+
+function ouvirConexoes() {
+  const parar = store.assinarConexoes((lista) => {
+    conexoes = lista.sort((a, b) => (a.criadoEm || 0) - (b.criadoEm || 0));
+    const c = conexao();
+    if ((c ? c.id : null) !== divCid) {
+      if (pararDiv) pararDiv();
+      pararDiv = null; divItens = []; divAcertos = []; divCid = c ? c.id : null;
+      if (c) pararDiv = store.assinarDivisao(c.id, (itens, acertos) => { divItens = itens; divAcertos = acertos; atualizarDivGastos(); agendarRender(); });
+      const pend = conviteSalvo();
+      if (c && pend && pend.cod === c.id) { localStorage.removeItem('fin-convite'); toast(`🤝 ${nomeOutro(c)} aceitou o convite`); }
+    }
+    atualizarDivGastos(); agendarRender();
+  });
+  return () => { parar(); if (pararDiv) pararDiv(); pararDiv = null; divCid = null; conexoes = []; divItens = []; divAcertos = []; atualizarDivGastos(); };
+}
+
+// A minha parte dos itens que não são um lançamento meu entra nos gastos dos relatórios (ver C.minhaFracao).
+function atualizarDivGastos() {
+  const eu = usuario && usuario.uid;
+  D.divGastos = divItens.filter((x) => !(x.criadoPor === eu && x.lancado))
+    .map((x) => ({ data: x.data, valor: C.minhaParteItem(x, eu), categoria: x.categoria || 'Outros' }))
+    .filter((x) => x.valor > 0);
+}
+
+function conviteSalvo() {
+  try {
+    const p = JSON.parse(localStorage.getItem('fin-convite') || 'null');
+    if (p && p.expira > Date.now()) return p;
+  } catch (e) { /* ignora */ }
+  localStorage.removeItem('fin-convite');
+  return null;
+}
+const linkConvite = (cod) => `${location.origin}${location.pathname}?convite=${cod}${modoLocal && new URLSearchParams(location.search).has('local') ? '&local' : ''}`;
+
+async function compartilharConvite(cod) {
+  const url = linkConvite(cod);
+  const texto = `${meuNome()} te convidou para dividir contas no Minhas Finanças. Abra o link e entre com a sua conta Google (código ${cod}):`;
+  if (navigator.share) {
+    try { await navigator.share({ title: 'Dividir contas', text: texto, url }); return; } catch (e) { if (e.name === 'AbortError') return; }
+  }
+  navigator.clipboard?.writeText(`${texto} ${url}`).then(() => toast('Link do convite copiado ✓'), () => toast('Código: ' + cod));
+}
+
+async function gerarConvite() {
+  if (conexaoAtiva()) { toast(`Você já está conectado com ${nomeOutro()}`); return; }
+  try {
+    const cod = await store.criarConvite(meuNome());
+    localStorage.setItem('fin-convite', JSON.stringify({ cod, expira: Date.now() + 47 * 3600000 }));
+    render();
+    compartilharConvite(cod);
+  } catch (e) { toast('Não deu para gerar o convite: ' + (e.message || e)); }
+}
+
+function digitarCodigo() {
+  abrirModal('Tenho um código', `<form id="f">
+    <label>Código ou link do convite</label><input name="cod" required autocomplete="off" autocapitalize="off" placeholder="Ex.: k7m2x9qpaz">
+    <div class="acoes"><button class="btn primary">Continuar</button></div></form>`);
+  $('#f').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const txt = String(new FormData(ev.target).get('cod') || '').trim();
+    const cod = (txt.match(/convite=([a-z0-9]+)/i) || [null, txt])[1].toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (cod.length < 6) { toast('Código inválido'); return; }
+    abrirConvite(cod);
+  });
+}
+
+async function abrirConvite(cod) {
+  if (conexaoAtiva()) { toast(`Você já está conectado com ${nomeOutro()}. Desfaça a conexão antes.`); return; }
+  let conv = null;
+  try { conv = await store.lerConvite(cod); } catch (e) { console.warn(e); }
+  if (!conv || !(conv.expira > Date.now())) { toast('Convite não encontrado, vencido ou já usado'); return; }
+  if (conv.uid === usuario.uid) { toast('Esse convite é seu: mande o link para a outra pessoa'); return; }
+  abrirModal('Dividir contas', `
+    <div class="aviso" style="margin-top:4px"><b>${esc(conv.nome)}</b> te convidou para dividir contas.<br>Vocês vão ver os itens divididos e o saldo de quem deve a quem. O resto das suas finanças continua só seu.</div>
+    <div class="acoes"><button class="btn" data-a="fechar-modal">Agora não</button><button class="btn primary" id="div-aceitar">Conectar</button></div>`);
+  $('#div-aceitar').addEventListener('click', async (ev) => {
+    ev.currentTarget.disabled = true;
+    try {
+      await store.aceitarConvite(cod, conv, meuNome());
+      fecharModal(); toast(`🤝 Conectado com ${conv.nome}`);
+      divVoltar = 'inicio'; trocarTela('dividir');
+    } catch (e) { ev.currentTarget.disabled = false; toast('Não deu para conectar: ' + (e.code || e.message || e)); }
+  });
+}
+
+function blocoConvite() {
+  const pend = conviteSalvo();
+  const ate = pend ? new Date(pend.expira) : null;
+  return `<div class="card g">
+    <div class="lbl">🤝 Dividir contas</div>
+    <div class="val" style="font-size:1.2rem">Conecte com outra pessoa</div>
+    <div class="aviso">Cada um usa a própria conta Google. O que um lança como dividido aparece para o outro, com o saldo de quem deve a quem. O resto das finanças de cada um continua separado.</div>
+    ${pend ? `<div class="aviso">⏳ Convite aguardando: <b class="cod">${esc(pend.cod)}</b><br>Vale até ${C.pad(ate.getDate())}/${C.pad(ate.getMonth() + 1)} às ${C.pad(ate.getHours())}:${C.pad(ate.getMinutes())}. A outra pessoa abre o link no celular, entra com a conta Google e toca em Conectar.</div>
+      <div class="acoes"><button class="btn" data-a="div-cancelar-convite">Cancelar</button><button class="btn primary" data-a="div-compartilhar">Enviar link</button></div>
+      ${modoLocal ? '<button class="btn big" data-a="div-sim-aceite">🧪 Simular: a outra pessoa aceitou</button>' : ''}`
+    : '<div class="acoes"><button class="btn" data-a="div-tenho-codigo">Tenho um código</button><button class="btn primary" data-a="div-convidar">Gerar convite</button></div>'}
+  </div>`;
+}
+
+function linhaDiv(x, c, ativa) {
+  const eu = usuario.uid; const nome = esc(nomeOutro(c));
+  const euPaguei = x.pagou === eu;
+  const ci = C.catInfo(x.categoria);
+  const novo = !x.pago && x.criadoPor !== eu && (x.criadoEm || 0) > divVistoAntes;
+  const como = Number(x.parte) >= Number(x.valor) ? `tudo é ${euPaguei ? 'de ' + nome : 'seu'}` : x.divisao === 'metade' ? 'metade' : `parte ${euPaguei ? 'de ' + nome : 'sua'} ${fmt(x.parte)}`;
+  return `<div class="row ${novo ? 'div-novo' : ''}">
+    <div class="ic" style="--c:${ci.c}">${ci.e}</div>
+    <div class="info" data-a="div-item" data-id="${x.id}">
+      <div class="t">${esc(x.descricao)}${novo ? ' <span class="tag amber">novo</span>' : ''}</div>
+      <div class="m">${C.dataBR(x.data)} · ${euPaguei ? 'você' : nome} pagou ${fmt(x.valor)}, ${como} · lançado por ${x.criadoPor === eu ? 'você' : nome}${x.pago ? ` <span class="tag green">Acertado ${C.dataBR(x.pagoEm)}</span>` : ''}</div>
+    </div>
+    <div class="v ${euPaguei ? 'pos' : 'neg'}">${euPaguei ? '+' : '−'} ${fmt(x.parte)}</div>
+    ${ativa ? `<button class="chk ${x.pago ? 'on' : ''}" data-a="div-pagar" data-id="${x.id}" aria-label="${x.pago ? 'Voltar para em aberto' : 'Marcar como acertado'}">✓</button>` : ''}
+  </div>`;
+}
+
+function telaDividir() {
+  const voltar = `<button class="link" data-a="ir" data-id="${divVoltar}" style="margin:10px 4px">‹ Voltar</button>`;
+  const c = conexao();
+  if (!c) return voltar + blocoConvite();
+  localStorage.setItem(vistoKey(c.id), String(Date.now()));
+  const eu = usuario.uid; const nome = esc(nomeOutro(c));
+  const ativa = c.membros.length === 2;
+  const saldo = C.saldoDivisao(divItens, eu);
+  const abertos = divItens.filter((x) => !x.pago).sort((a, b) => (b.data || '').localeCompare(a.data || '') || (b.criadoEm || 0) - (a.criadoEm || 0));
+  const pagos = divItens.filter((x) => x.pago).sort((a, b) => (b.pagoEm || '').localeCompare(a.pagoEm || '') || (b.data || '').localeCompare(a.data || '')).slice(0, 30);
+  const acertos = [...divAcertos].sort((a, b) => (b.em || 0) - (a.em || 0));
+  const titulo = saldo > 0 ? `${nome} te deve` : saldo < 0 ? `Você deve a ${nome}` : `Tudo acertado com ${nome}`;
+  return `${voltar}
+  ${ativa ? '' : `<div class="aviso" style="margin-top:0">⚠️ ${nome} desfez a conexão. Os itens abaixo ficam só para consulta.</div>`}
+  <div class="card g div-hero">
+    <div class="lbl">🤝 ${titulo}</div>
+    <div class="val ${saldo > 0 ? 'pos' : saldo < 0 ? 'neg' : ''}">${saldo ? fmt(Math.abs(saldo)) : '✓'}</div>
+    <div class="sub">${abertos.length ? plural(abertos.length, 'item em aberto', 'itens em aberto') : 'Nenhum item em aberto'}</div>
+    ${ativa ? `<div class="div-acoes"><button class="btn" data-a="div-novo" data-id="me-deve">＋ ${nome} me deve</button><button class="btn" data-a="div-novo" data-id="devo">＋ Eu devo</button></div>
+    ${abertos.length ? '<button class="btn primary big" data-a="div-acertar">Acertar tudo</button>' : ''}` : ''}
+  </div>
+
+  <div class="sec"><div class="sec-h"><h3>Em aberto</h3></div>
+    ${abertos.length ? `<div class="list g">${abertos.map((x) => linhaDiv(x, c, ativa)).join('')}</div>`
+      : `<div class="vazio g"><span class="big">🤝</span>Nada em aberto.${ativa ? `<br>Use os botões acima ou marque <b>Dividir com ${nome}</b> ao lançar uma conta ou compra.` : ''}</div>`}
+  </div>
+
+  ${acertos.length ? `<div class="sec"><div class="sec-h"><h3>Acertos</h3></div><div class="list g">${acertos.map((a) => `<div class="row">
+    <div class="ic" style="--c:#2dd4bf">🤝</div>
+    <div class="info"><div class="t">${!a.valor ? 'Acerto sem valor (os itens se anularam)' : a.de === eu ? `Você pagou ${nome}` : `${nome} pagou você`}</div>
+    <div class="m">${C.dataBR(a.data)} · ${plural(a.n || (a.itens || []).length, 'item', 'itens')} · registrado por ${a.criadoPor === eu ? 'você' : nome}</div></div>
+    <div class="v">${fmt(a.valor)}</div></div>`).join('')}</div></div>` : ''}
+
+  ${pagos.length ? `<div class="sec"><div class="sec-h"><h3>Acertados</h3></div><div class="list g">${pagos.map((x) => linhaDiv(x, c, ativa)).join('')}</div></div>` : ''}
+
+  ${modoLocal ? `<div class="sec"><div class="list g">
+    ${ativa ? linhaConta('div-sim-item', '🧪', '#a1a1aa', `Simular: ${nome} lançou um item`, '') : ''}
+    ${ativa ? linhaConta('div-sim-sair', '🧪', '#a1a1aa', `Simular: ${nome} desfez a conexão`, '') : ''}
+  </div></div>` : ''}
+
+  <div class="sec"><div class="list g">${linhaConta('div-sair', ativa ? '✂️' : '🗑️', '#fb7185', ativa ? `Desfazer conexão com ${nome}` : 'Apagar histórico', '', 'perigo')}</div></div>
+  <p class="rodape">Nos seus relatórios conta só a sua parte de cada item. O pagamento do acerto (Pix, dinheiro) é feito fora do app.</p>`;
+}
+
+function cardDividir() {
+  const c = conexao(); if (!c) return '';
+  const saldo = C.saldoDivisao(divItens, usuario.uid); const nome = esc(nomeOutro(c));
+  const novos = novosDiv(Number(localStorage.getItem(vistoKey(c.id))) || 0).length;
+  return `<button class="card g" data-a="ir-dividir" style="margin-top:12px">
+    <span class="chev">›</span>
+    <div class="lbl">🤝 Dividindo com ${nome}${novos ? ` <span class="tag amber">${plural(novos, 'novo', 'novos')}</span>` : ''}</div>
+    <div class="val ${saldo > 0 ? 'pos' : saldo < 0 ? 'neg' : ''}">${saldo ? fmt(Math.abs(saldo)) : 'Tudo acertado'}</div>
+    <div class="sub">${saldo > 0 ? `${nome} te deve` : saldo < 0 ? `Você deve a ${nome}` : 'Nenhum valor em aberto'}</div>
+  </button>`;
+}
+
+// Campos de divisão (usados no item dividido e no bloco "Dividir com" de conta/compra).
+const camposDivisao = (modo = 'metade', parte = null) => `<label>Divisão</label><select name="divisao">
+    <option value="metade" ${modo === 'metade' ? 'selected' : ''}>Metade para cada (50/50)</option>
+    <option value="valor" ${modo === 'valor' ? 'selected' : ''}>Um valor específico</option>
+    <option value="tudo" ${modo === 'tudo' ? 'selected' : ''}>Tudo é de quem não pagou</option></select>
+  <div data-div-valor><label data-div-lbl>Parte de quem não pagou</label><input name="parte" inputmode="decimal" placeholder="R$ 0,00" value="${modo === 'valor' && parte ? Number(parte).toFixed(2).replace('.', ',') : ''}"></div>
+  <div class="aviso" data-div-prev></div>`;
+
+// devedor(f) => { nome, euDevo }: quem fica devendo, para os textos.
+function ligarDivisao(form, devedor) {
+  const sel = form.querySelector('[name=divisao]'); if (!sel) return;
+  const at = () => {
+    const f = new FormData(form);
+    const chk = form.querySelector('[name=dividir]');
+    const campos = form.querySelector('[data-div-campos]');
+    if (campos) campos.style.display = chk && !chk.checked ? 'none' : '';
+    const dev = devedor(f);
+    sel.querySelector('[value=tudo]').textContent = dev.euDevo ? 'Tudo é meu (só eu uso)' : `Tudo é de ${dev.nome}`;
+    form.querySelector('[data-div-lbl]').textContent = dev.euDevo ? 'Quanto é seu' : `Parte de ${dev.nome}`;
+    form.querySelector('[data-div-valor]').style.display = sel.value === 'valor' ? '' : 'none';
+    const v = C.parseValor(f.get('valor')) || 0;
+    const parte = sel.value === 'metade' ? v / 2 : sel.value === 'tudo' ? v : C.parseValor(f.get('parte')) || 0;
+    form.querySelector('[data-div-prev]').innerHTML = v > 0 && parte > 0
+      ? `${dev.euDevo ? `Você fica devendo <b>${fmt(parte)}</b> a ${esc(dev.nome)}.` : `${esc(dev.nome)} fica devendo <b>${fmt(parte)}</b> para você.`}${parte > v ? ' <span class="neg">Maior que o total!</span>' : ''}`
+      : 'Informe o valor para ver a divisão.';
+  };
+  form.addEventListener('input', at); form.addEventListener('change', at); at();
+}
+
+function lerDivisao(f, valor) {
+  const divisao = f.get('divisao') || 'metade';
+  const parte = C.r2(divisao === 'metade' ? valor / 2 : divisao === 'tudo' ? valor : C.parseValor(f.get('parte')));
+  if (!(parte > 0) || parte > valor) { toast('A parte dividida precisa ser maior que zero e até o valor total'); return null; }
+  return { divisao, parte };
+}
+
+function formDivItem(x, tipo) {
+  const c = conexaoAtiva(); if (!c) return;
+  const eu = usuario.uid; const outro = outroDe(c); const nome = nomeOutro(c);
+  const novo = !x;
+  x = x || { descricao: '', valor: null, data: C.hojeISO(), categoria: 'Outros', pagou: tipo === 'devo' ? outro : eu, divisao: 'metade', parte: null };
+  abrirModal(novo ? (tipo === 'devo' ? `Eu devo a ${nome}` : `${nome} me deve`) : 'Editar item dividido', `<form id="f">
+    ${campoValor(x.valor, 'Valor total')}
+    <label>Descrição</label><input name="descricao" required maxlength="80" autocomplete="off" placeholder="Ex.: Mercado, Pizza, Conta de luz" value="${esc(x.descricao)}">
+    <div class="linha">
+      <div><label>Data</label><input name="data" type="date" required value="${x.data}"></div>
+      <div><label>Categoria</label><select name="categoria">${optsCategorias(x.categoria)}</select></div>
+    </div>
+    <label>Quem pagou</label><select name="pagou"><option value="${eu}" ${x.pagou === eu ? 'selected' : ''}>Eu</option><option value="${esc(outro)}" ${x.pagou === outro ? 'selected' : ''}>${esc(nome)}</option></select>
+    ${camposDivisao(x.divisao, x.parte)}
+    ${botoes(!novo)}
+  </form>`);
+  const form = $('#f');
+  ligarDivisao(form, (f) => ({ nome, euDevo: f.get('pagou') !== eu }));
+  form.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const f = new FormData(form);
+    const valor = lerValor(f); if (valor === null) return;
+    const div = lerDivisao(f, valor); if (!div) return;
+    const pagou = f.get('pagou') === eu ? eu : outro;
+    store.definirItem(c.id, x.id || store.novoId(), {
+      descricao: f.get('descricao').trim(), valor, data: f.get('data'), categoria: f.get('categoria'), pagou, ...div,
+      criadoPor: eu, criadoEm: x.criadoEm || Date.now(), pago: false, pagoEm: null, lancado: false,
+    });
+    fecharModal(); toast(novo ? '🤝 Item dividido lançado' : 'Item atualizado');
+  });
+  ligarExcluir(() => store.removerItem(c.id, x.id));
+}
+
+function abrirDivItem(id) {
+  const x = divItens.find((i) => i.id === id); if (!x) return;
+  const eu = usuario.uid; const meu = x.criadoPor === eu;
+  const c = conexao(); const ativa = !!conexaoAtiva(); const nome = esc(nomeOutro(c));
+  // Item que nasceu de um lançamento meu: edita pelo próprio lançamento.
+  if (meu && ativa && !x.pago && x.lancado && x.origem) {
+    const l = (D[x.origem.col] || []).find((y) => y.id === x.origem.id && !y.excluida);
+    if (l) { (x.origem.col === 'compras' ? formCompra : formConta)(l); return; }
+  }
+  if (meu && ativa && !x.pago) { formDivItem(x); return; }
+  abrirModal(x.descricao, `<div class="aviso" style="margin-top:4px">
+    ${C.dataBR(x.data)} · ${C.catInfo(x.categoria).e} ${esc(x.categoria || 'Outros')}<br>
+    Total <b>${fmt(x.valor)}</b>, pago por <b>${x.pagou === eu ? 'você' : nome}</b><br>
+    ${x.pagou === eu ? `${nome} deve` : 'Você deve'} <b>${fmt(x.parte)}</b> · lançado por ${meu ? 'você' : nome}
+    ${x.pago ? `<br>✅ Acertado em ${C.dataBR(x.pagoEm)}` : ''}</div>
+    ${meu && ativa ? '<div class="acoes"><button type="button" class="btn danger" data-excluir>Excluir</button></div>' : ''}`);
+  ligarExcluir(() => store.removerItem(c.id, x.id));
+}
+
+function acertarTudo() {
+  const c = conexaoAtiva(); if (!c) return;
+  const eu = usuario.uid; const outro = outroDe(c); const nome = esc(nomeOutro(c));
+  const abertos = divItens.filter((x) => !x.pago);
+  if (!abertos.length) { toast('Nada em aberto'); return; }
+  const saldo = C.saldoDivisao(divItens, eu);
+  abrirModal('Acertar tudo', `<div class="aviso" style="margin-top:4px">${saldo > 0 ? `<b>${nome}</b> paga <b>${fmt(saldo)}</b> para você` : saldo < 0 ? `Você paga <b>${fmt(-saldo)}</b> para <b>${nome}</b>` : 'Os valores se anulam: ninguém precisa pagar nada'}, e ${plural(abertos.length, 'item fica acertado', 'itens ficam acertados')}.<br>O pagamento em si (Pix, dinheiro) é feito fora do app.</div>
+    <div class="acoes"><button class="btn" data-a="fechar-modal">Cancelar</button><button class="btn primary" id="div-ok">Registrar acerto</button></div>`);
+  $('#div-ok').addEventListener('click', () => {
+    store.acertar(c.id, { valor: Math.abs(saldo), de: saldo > 0 ? outro : eu, para: saldo > 0 ? eu : outro, itens: abertos.map((x) => x.id), n: abertos.length, data: C.hojeISO(), em: Date.now(), criadoPor: eu });
+    fecharModal(); toast('🤝 Acerto registrado');
+  });
+}
+
+function sairDivisao() {
+  const c = conexao(); if (!c) return;
+  const nome = esc(nomeOutro(c)); const ativa = c.membros.length === 2;
+  abrirModal(ativa ? 'Desfazer conexão' : 'Apagar histórico', `<div class="aviso" style="margin-top:4px">${ativa
+    ? `Você deixa de ver os itens com <b>${nome}</b>, e ${nome} deixa de ver o que você lançar. O histórico continua com ${nome} até ser apagado. Para dividir de novo, é preciso um convite novo.`
+    : `Apaga todos os itens e acertos com <b>${nome}</b>. Não dá para desfazer.`}</div>
+    <div class="acoes"><button class="btn" data-a="fechar-modal">Cancelar</button><button class="btn danger" id="div-sair-ok">${ativa ? 'Desfazer' : 'Apagar'}</button></div>`);
+  $('#div-sair-ok').addEventListener('click', async (ev) => {
+    const b = ev.currentTarget;
+    if (b.dataset.ok !== '1') { b.dataset.ok = '1'; b.textContent = 'Toque de novo para confirmar'; return; }
+    b.disabled = true;
+    try {
+      if (ativa) await store.sairConexao(c); else await store.apagarConexao(c.id);
+      fecharModal(); toast(ativa ? 'Conexão desfeita' : 'Histórico apagado');
+    } catch (e) { b.disabled = false; toast('Não deu certo: ' + (e.code || e.message || e)); }
+  });
+}
+
+// Bloco "Dividir com Fulana" nos formulários de conta e compra (quem pagou é sempre você).
+const itemLigado = (x) => { const c = conexaoAtiva(); return x && x.divItem && c && x.divCid === c.id ? divItens.find((i) => i.id === x.divItem) || null : null; };
+function blocoDividir(x) {
+  const c = conexaoAtiva(); if (!c) return '';
+  const it = itemLigado(x); const nome = esc(nomeOutro(c));
+  if (it && it.pago) return `<div class="aviso">🤝 Dividido com ${nome} (parte de ${nome}: ${fmt(it.parte)}). Já foi acertado, então a divisão não muda mais.</div>`;
+  return `<label class="chk-l"><input type="checkbox" name="dividir" ${it ? 'checked' : ''}> 🤝 Dividir com ${nome}</label>
+    <div data-div-campos>${camposDivisao(it ? it.divisao : 'metade', it ? it.parte : null)}</div>`;
+}
+function lerDividir(f, valor) {
+  if (!conexaoAtiva() || f.get('dividir') !== 'on') return null;
+  return lerDivisao(f, valor) || false;
+}
+// Grava (ou desfaz) o item compartilhado de um lançamento e devolve os campos que vão no lançamento.
+function camposDividir(col, id, dados, antigo, div) {
+  const c = conexaoAtiva();
+  const ligado = itemLigado(antigo);
+  if (ligado && ligado.pago) return {};
+  if (!div) {
+    if (ligado) store.removerItem(c.id, ligado.id);
+    return ligado || (antigo && antigo.divItem && c && antigo.divCid === c.id) ? { parteOutro: null, divItem: null, divCid: null } : {};
+  }
+  const itemId = ligado ? ligado.id : store.novoId();
+  store.definirItem(c.id, itemId, {
+    descricao: dados.descricao, valor: dados.valor, data: dados.data, categoria: dados.categoria || 'Outros', pagou: usuario.uid, ...div,
+    criadoPor: usuario.uid, criadoEm: ligado ? ligado.criadoEm : Date.now(), pago: false, pagoEm: null, lancado: true, origem: { col, id },
+  });
+  return { parteOutro: div.parte, divItem: itemId, divCid: c.id };
+}
+function desfazerDivisao(x) { const it = itemLigado(x); if (it && !it.pago) store.removerItem(conexaoAtiva().id, it.id); }
+
 function abrirAtalho() {
   const acao = new URLSearchParams(location.search).get('acao'); if (!acao) return;
   history.replaceState(null, '', location.pathname);
@@ -1874,6 +2246,30 @@ const ACOES = {
   'ir-comissoes': () => { sub = 'comissoes'; trocarTela('lanc'); },
   'cfg-apelido': () => configApelido(),
   'cfg-telegram': () => configTelegram(),
+  'fechar-modal': () => fecharModal(),
+  'ir-dividir': () => {
+    if (tela !== 'dividir') divVoltar = tela;
+    const c = conexao();
+    divVistoAntes = c ? Number(localStorage.getItem(vistoKey(c.id))) || 0 : 0;
+    trocarTela('dividir');
+  },
+  'div-convidar': () => gerarConvite(),
+  'div-compartilhar': () => { const p = conviteSalvo(); if (p) compartilharConvite(p.cod); else render(); },
+  'div-cancelar-convite': () => { const p = conviteSalvo(); if (p) store.cancelarConvite(p.cod).catch(() => {}); localStorage.removeItem('fin-convite'); render(); },
+  'div-tenho-codigo': () => digitarCodigo(),
+  'div-novo': (id) => formDivItem(null, id),
+  'div-item': (id) => abrirDivItem(id),
+  'div-pagar': (id) => {
+    const c = conexaoAtiva(); const x = divItens.find((i) => i.id === id); if (!c || !x) return;
+    const p = !x.pago;
+    store.atualizarItem(c.id, id, { pago: p, pagoEm: p ? C.hojeISO() : null, pagoPor: p ? usuario.uid : null, acertoId: null });
+    toast(p ? `"${x.descricao}" acertado ✓` : 'Voltou para em aberto');
+  },
+  'div-acertar': () => acertarTudo(),
+  'div-sair': () => sairDivisao(),
+  'div-sim-aceite': () => { const p = conviteSalvo(); if (p && store.simular) store.simular.aceite(p.cod); },
+  'div-sim-item': () => { const c = conexaoAtiva(); if (c && store.simular) { store.simular.item(c.id); toast(`🧪 ${nomeOutro(c)} lançou um item`); } },
+  'div-sim-sair': () => { const c = conexaoAtiva(); if (c && store.simular) store.simular.sair(c.id); },
   'cfg-inicio': () => configInicio(),
   'cfg-categorias': () => configCategorias(),
   ir: (id) => trocarTela(id),

@@ -16,6 +16,78 @@ service cloud.firestore {
         && request.resource.data.expira is int
         && request.resource.data.expira <= request.time.toMillis() + 900000;
     }
+    // ---------- Dividir contas ----------
+    // Convite: quem tem o código lê (get; ninguém lista). Vale até 48 h.
+    // Some quando é aceito (na mesma gravação que cria a conexão) ou quando o dono cancela.
+    match /convites/{cod} {
+      allow get: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasOnly(['uid', 'nome', 'expira'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.nome is string && request.resource.data.nome.size() <= 40
+        && request.resource.data.expira is int
+        && request.resource.data.expira <= request.time.toMillis() + 172800000;
+      allow delete: if request.auth != null
+        && (resource.data.uid == request.auth.uid
+          || (existsAfter(/databases/$(database)/documents/conexoes/$(cod))
+            && request.auth.uid in getAfter(/databases/$(database)/documents/conexoes/$(cod)).data.membros));
+    }
+
+    // Conexão entre duas pessoas. O id é o código do convite, então cada convite gera uma conexão só.
+    match /conexoes/{cid} {
+      function membros() { return get(/databases/$(database)/documents/conexoes/$(cid)).data.membros; }
+      function convite() { return get(/databases/$(database)/documents/convites/$(cid)).data; }
+
+      allow read: if request.auth != null && request.auth.uid in resource.data.membros;
+      // Aceitar: [quem convidou, quem aceita], com convite válido, de outra pessoa, apagado junto.
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasOnly(['membros', 'nomes', 'criadoEm'])
+        && request.resource.data.membros.size() == 2
+        && request.resource.data.membros[1] == request.auth.uid
+        && exists(/databases/$(database)/documents/convites/$(cid))
+        && convite().uid == request.resource.data.membros[0]
+        && convite().uid != request.auth.uid
+        && convite().expira > request.time.toMillis()
+        && !existsAfter(/databases/$(database)/documents/convites/$(cid));
+      // Ninguém mexe nos membros, a não ser para sair (tirar a si mesmo).
+      allow update: if request.auth != null
+        && request.auth.uid in resource.data.membros
+        && resource.data.membros.size() == 2
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['membros', 'saiu'])
+        && request.resource.data.membros == resource.data.membros.removeAll([request.auth.uid])
+        && request.resource.data.saiu == request.auth.uid;
+      // Quem ficou sozinho pode apagar o histórico.
+      allow delete: if request.auth != null && resource.data.membros == [request.auth.uid];
+
+      match /itens/{iid} {
+        allow read: if request.auth != null && request.auth.uid in membros();
+        allow create: if request.auth != null && request.auth.uid in membros()
+          && request.resource.data.criadoPor == request.auth.uid
+          && request.resource.data.pagou in membros()
+          && request.resource.data.valor is number && request.resource.data.valor > 0
+          && request.resource.data.parte is number && request.resource.data.parte >= 0
+          && request.resource.data.parte <= request.resource.data.valor;
+        // Os dois marcam como pago; só quem lançou edita o resto.
+        allow update: if request.auth != null && request.auth.uid in membros()
+          && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pago', 'pagoEm', 'pagoPor', 'acertoId'])
+            || (resource.data.criadoPor == request.auth.uid
+              && request.resource.data.criadoPor == request.auth.uid
+              && request.resource.data.pagou in membros()
+              && request.resource.data.valor is number && request.resource.data.valor > 0
+              && request.resource.data.parte is number && request.resource.data.parte >= 0
+              && request.resource.data.parte <= request.resource.data.valor));
+        allow delete: if request.auth != null && request.auth.uid in membros()
+          && (resource.data.criadoPor == request.auth.uid || membros().size() == 1);
+      }
+
+      match /acertos/{aid} {
+        allow read: if request.auth != null && request.auth.uid in membros();
+        allow create: if request.auth != null && request.auth.uid in membros()
+          && request.resource.data.criadoPor == request.auth.uid;
+        allow delete: if request.auth != null && membros() == [request.auth.uid];
+      }
+    }
+
     // Todo o resto fica bloqueado.
     match /{document=**} {
       allow read, write: if false;
