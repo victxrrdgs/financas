@@ -289,6 +289,7 @@ function listarVinculos() { Logger.log(JSON.stringify(chatsVinculados())); }
 // Busca as mensagens novas no Telegram (rodado a cada minuto por um acionador).
 function poll() {
   var lock = LockService.getScriptLock(); if (!lock.tryLock(5000)) return;
+  if (PROPS.getProperty('PERFIL_V') !== '2') { try { configurarPerfilBot(); PROPS.setProperty('PERFIL_V', '2'); } catch (e) { console.log('perfil: ' + e.message); } }
   try {
     var offset = Number(PROPS.getProperty('OFFSET') || 0);
     var r = tg('getUpdates', { offset: offset, timeout: 0, allowed_updates: ['message', 'callback_query'] });
@@ -814,7 +815,7 @@ return {configurar: configurar, ymAtual: ymAtual, contasBancarias: contasBancari
 
 // ================= Consultas e avisos (v2) =================
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-try { AJUDA += '\n\n<b>Consultas</b>\n/saldo · saldo das contas\n/fatura · faturas abertas (/fatura nubank detalha)\n/hoje · quanto posso gastar hoje\n/avisos · vencimentos e alertas\n/sair · desconectar este Telegram'; } catch (e) {}
+try { AJUDA += '\n\n<b>Consultas</b>\n/saldo · saldo das contas\n/fatura · faturas abertas (/fatura nubank detalha)\n/hoje · quanto posso gastar hoje\n/avisos · vencimentos e alertas\n/semana · resumo da semana\n/sair · desconectar este Telegram'; } catch (e) {}
 var COLS_D = ['contas', 'entradas', 'recorrentes', 'carteiras', 'compras', 'faturas', 'transferencias', 'orcamentos', 'config', 'comissoes'];
 
 function carregarD() {
@@ -875,42 +876,49 @@ function cmdHoje() {
 }
 
 // Texto do aviso diário (vazio = nada para avisar)
-function textoAvisos() {
+function nomeCurto(s) { return String(s || '').replace(/^Fatura\s+/i, '').replace(/\s*[•·]+\s*\d{3,4}\b/g, '').replace(/\s+·\s+.*$/, '').trim(); }
+function textoAvisos(auto) {
   var D = carregarD();
   var ym = CALC.ymAtual();
-  var ls = [];
-  var r = CALC.resumoMes(D, ym);
-  var prox = CALC.resumoMes(D, CALC.somarMes(ym, 1));
-  var abertos = r.abertos.concat(prox.abertos);
+  var atras = [], venc = [], fech = [], orc = [], vistos = {};
+  var abertos = CALC.resumoMes(D, ym).abertos.concat(CALC.resumoMes(D, CALC.somarMes(ym, 1)).abertos);
   abertos.forEach(function (x) {
+    if (vistos[x.id]) return; vistos[x.id] = 1;
     var d = CALC.diasAte(x.data);
-    var nome = esc(x.descricao) + ' · ' + brl(x.valor);
-    if (d < 0) ls.push('🔴 Vencida há ' + (-d) + 'd: ' + nome + (x.rolada ? ' (já entra na próxima fatura com juros)' : ''));
-    else if (d === 0) ls.push('🟠 Vence HOJE: ' + nome);
-    else if (d <= 3) ls.push('🟡 Vence em ' + d + 'd (' + CALC.dataBR(x.data) + '): ' + nome);
+    var nome = esc(nomeCurto(x.descricao));
+    if (d < 0) atras.push({ v: Number(x.valor) || 0, rol: !!x.rolada, t: '• ' + nome + ' · ' + brl(x.valor) + ' · ' + (-d) + (d === -1 ? ' dia' : ' dias') });
+    else if (d <= 3) venc.push('• ' + nome + ' · ' + brl(x.valor) + ' · ' + (d === 0 ? 'hoje' : d === 1 ? 'amanhã' : 'em ' + d + ' dias'));
   });
-  // cartão fechando em até 2 dias
   CALC.cartoes(D).forEach(function (card) {
     for (var k = 0; k <= 2; k++) {
       var f = CALC.faturaDe(D, card, CALC.somarMes(ym, k));
       var d = CALC.diasAte(f.fecha);
-      if (!f.pago && d >= 0 && d <= 2 && f.valor > 0) { ls.push('💳 ' + card.nome + ' fecha ' + (d === 0 ? 'hoje' : 'em ' + d + 'd') + ' · ' + brl(f.valor)); break; }
+      if (!f.pago && d >= 0 && d <= 2 && f.valor > 0) { fech.push('• ' + esc(nomeCurto(card.nome)) + ' · ' + (d === 0 ? 'hoje' : d === 1 ? 'amanhã' : 'em ' + d + ' dias') + ' · ' + brl(f.valor)); break; }
     }
   });
-  // orçamentos 80%+ (avisa uma vez por faixa por mês)
   var P = PropertiesService.getScriptProperties();
   CALC.orcamentosMes(D, ym).forEach(function (o) {
     var faixa = o.pct >= 100 ? 100 : (o.pct >= 80 ? 80 : 0);
     if (!faixa) return;
     var key = 'ORC_' + UID.slice(0, 8) + '_' + ym + '_' + o.categoria;
-    if (Number(P.getProperty(key) || 0) >= faixa) return;
-    P.setProperty(key, String(faixa));
-    ls.push((faixa === 100 ? '🚨 Estourou' : '⚠️ ' + o.pct + '% do') + ' orçamento de ' + o.categoria + ': ' + brl(o.gasto) + ' de ' + brl(o.limite));
+    if (auto) { if (Number(P.getProperty(key) || 0) >= faixa) return; P.setProperty(key, String(faixa)); }
+    orc.push('• ' + esc(o.categoria) + ' · ' + brl(o.gasto) + ' de ' + brl(o.limite) + (faixa === 100 ? ' 🚨' : ' (' + o.pct + '%)'));
   });
   var p = CALC.projecao(D, 30, { comissoes: !!D._prefs.modComissoes });
-  if (p.min.s < 0) ls.push('📉 Saldo previsto fica negativo: ' + brl(p.min.s) + ' em ' + CALC.dataBR(p.min.d));
-  if (!ls.length) return '';
-  return '☀️ <b>Bom dia! Avisos de hoje</b>\n' + ls.join('\n') + '\n\n💸 Pode gastar hoje: ' + brl(p.podeGastar) + '/dia';
+  if (!atras.length && !venc.length && !fech.length && !orc.length && p.min.s >= 0) return '';
+  var DIAS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+  var dt = new Date();
+  var t = '☀️ <b>' + (auto ? 'Bom dia! Seus avisos' : 'Avisos') + '</b> · ' + DIAS[dt.getDay()] + ', ' + pad(dt.getDate()) + '/' + pad(dt.getMonth() + 1);
+  if (atras.length) {
+    var tot = Math.round(atras.reduce(function (a, x) { return a + x.v; }, 0) * 100) / 100;
+    t += '\n\n🔴 <b>Em atraso · ' + brl(tot) + '</b>\n' + atras.map(function (x) { return x.t; }).join('\n');
+    if (atras.some(function (x) { return x.rol; })) t += '\n<i>↳ faturas já somadas à próxima, com juros</i>';
+  }
+  if (venc.length) t += '\n\n⏰ <b>Vencendo</b>\n' + venc.join('\n');
+  if (fech.length) t += '\n\n💳 <b>Fechando</b>\n' + fech.join('\n');
+  if (orc.length) t += '\n\n📊 <b>Orçamento</b>\n' + orc.join('\n');
+  t += '\n\n' + (p.min.s < 0 ? '📉 Saldo previsto: ' + brl(p.min.s) + ' em ' + CALC.dataBR(p.min.d) + '\n' : '') + '💸 Pode gastar hoje: <b>' + brl(p.podeGastar) + '</b>';
+  return t;
 }
 
 // Rodado pelo gatilho diário (8h)
@@ -921,7 +929,7 @@ function avisoDiario() {
   var m = chatsVinculados();
   Object.keys(m).forEach(function (c) { alvos.push([c, m[c].uid]); });
   alvos.forEach(function (a) {
-    try { UID = a[1]; var t = textoAvisos(); if (t) responder(a[0], t); }
+    try { UID = a[1]; var t = textoAvisos(true); if (t) responder(a[0], t); if (new Date().getDay() === 0) responder(a[0], resumoSemanal()); }
     catch (e) { console.log('aviso falhou p/ chat ' + a[0] + ': ' + e.message); }
   });
   UID = UID_DONO;
@@ -942,14 +950,78 @@ function testarConsultas() {
 
 // Comandos novos: devolve true se tratou
 function comandoConsulta(chat, texto) {
-  var m = String(texto || '').trim().match(/^\/(saldo|fatura|faturas|hoje|avisos)(@\w+)?\s*(.*)$/i);
+  var m = String(texto || '').trim().match(/^\/(saldo|fatura|faturas|hoje|avisos|semana)(@\w+)?\s*(.*)$/i);
   if (!m) return false;
   var c = m[1].toLowerCase();
   try {
     if (c === 'saldo') responder(chat, cmdSaldo());
     else if (c === 'fatura' || c === 'faturas') responder(chat, cmdFatura(m[3]));
     else if (c === 'hoje') responder(chat, cmdHoje());
+    else if (c === 'semana') responder(chat, resumoSemanal());
     else if (c === 'avisos') responder(chat, textoAvisos() || '✅ Nada para avisar hoje.');
   } catch (e) { responder(chat, '⚠️ Erro na consulta: ' + e.message); }
   return true;
 }
+
+
+// Nome, bio, descrição e menu de comandos do bot (rode uma vez)
+function configurarPerfilBot() {
+  var r = [];
+  r.push(tg('setMyName', { name: 'Minhas Finanças' }));
+  r.push(tg('setMyShortDescription', { short_description: 'Seu assistente financeiro: lance gastos, mande comprovantes e consulte saldo e faturas. 💸' }));
+  r.push(tg('setMyDescription', { description: '💸 Lance gastos escrevendo, como "50 mercado nubank"\n📷 Mande a foto do comprovante e eu leio o valor\n💳 /fatura, /saldo e /hoje para consultar\n☀️ Avisos diários de vencimentos e orçamento\n\nPara começar: app Minhas Finanças → Perfil → Conectar Telegram.' }));
+  r.push(tg('setMyCommands', { commands: [
+    { command: 'saldo', description: 'Saldo das contas' },
+    { command: 'fatura', description: 'Faturas abertas (ex.: /fatura nubank)' },
+    { command: 'hoje', description: 'Quanto posso gastar hoje' },
+    { command: 'avisos', description: 'Vencimentos e alertas' },
+    { command: 'semana', description: 'Resumo dos últimos 7 dias' },
+    { command: 'contas', description: 'Minhas contas e cartões' },
+    { command: 'ajuda', description: 'Como lançar gastos' },
+    { command: 'sair', description: 'Desconectar este Telegram' }
+  ] }));
+  r.forEach(function (x, i) { Logger.log(i + ': ' + JSON.stringify(x)); });
+}
+
+
+// ---------------- Resumo semanal (domingo à noite e /semana) ----------------
+function gastosPeriodo(D, ini, fim) {
+  var tot = 0, cats = {}, n = 0;
+  var add = function (cat, v) { v = Number(v) || 0; tot += v; n++; cat = cat || 'Outros'; cats[cat] = (cats[cat] || 0) + v; };
+  D.contas.forEach(function (c) { if (!c.excluida && c.pago && c.pagoEm && c.pagoEm >= ini && c.pagoEm <= fim) add(c.categoria, c.valor); });
+  D.compras.forEach(function (c) { if (!c.excluida && c.data && c.data >= ini && c.data <= fim) add(c.categoria, c.valor); });
+  return { tot: Math.round(tot * 100) / 100, n: n, cats: Object.keys(cats).map(function (k) { return [k, cats[k]]; }).filter(function (x) { return x[1] > 0; }).sort(function (a, b) { return b[1] - a[1]; }) };
+}
+function resumoSemanal() {
+  var D = carregarD();
+  var ini = hojeSP(-6), fim = hojeSP(0);
+  var g = gastosPeriodo(D, ini, fim), ant = gastosPeriodo(D, hojeSP(-13), hojeSP(-7));
+  var t = '📆 <b>Sua semana</b> · ' + CALC.dataBR(ini) + ' a ' + CALC.dataBR(fim) + '\n\n💸 Gastou <b>' + brl(g.tot) + '</b> em ' + g.n + (g.n === 1 ? ' lançamento' : ' lançamentos');
+  if (ant.tot > 0) {
+    var dif = Math.round((g.tot - ant.tot) / ant.tot * 100);
+    t += '\n' + (dif > 0 ? '📈 ' + dif + '% a mais' : dif < 0 ? '📉 ' + (-dif) + '% a menos' : '➖ igual') + ' que a semana anterior (' + brl(ant.tot) + ')';
+  }
+  if (g.cats.length) t += '\n\n🏷️ <b>Onde foi</b>\n' + g.cats.slice(0, 4).map(function (c) { return '• ' + esc(c[0]) + ' · ' + brl(c[1]) + (g.tot > 0 ? ' (' + Math.round(c[1] / g.tot * 100) + '%)' : ''); }).join('\n');
+  var p = CALC.projecao(D, 30, { comissoes: !!D._prefs.modComissoes });
+  var lim = hojeSP(7);
+  var prox = p.ev.filter(function (e) { return e.v < 0 && e.d <= lim; });
+  if (prox.length) {
+    var totP = Math.round(prox.reduce(function (a, e) { return a - e.v; }, 0) * 100) / 100;
+    t += '\n\n⏰ <b>Próximos 7 dias · ' + brl(totP) + '</b>\n' + prox.slice(0, 6).map(function (e) { return '• ' + CALC.dataBR(e.d) + ' ' + esc(nomeCurto(e.t)) + ' · ' + brl(-e.v); }).join('\n') + (prox.length > 6 ? '\n• … +' + (prox.length - 6) : '');
+  }
+  t += '\n\n💸 Pode gastar hoje: <b>' + brl(p.podeGastar) + '</b>';
+  return t;
+}
+function resumoSemanalTodos() {
+  var alvos = [];
+  var dono = PROPS.getProperty('ALLOWED_CHAT');
+  if (dono) alvos.push([dono, UID_DONO]);
+  var mm = chatsVinculados();
+  Object.keys(mm).forEach(function (c) { alvos.push([c, mm[c].uid]); });
+  alvos.forEach(function (a) {
+    try { UID = a[1]; responder(a[0], resumoSemanal()); }
+    catch (e) { console.log('resumo falhou p/ chat ' + a[0] + ': ' + e.message); }
+  });
+  UID = UID_DONO;
+}
+function testarSemana() { Logger.log(resumoSemanal()); Logger.log(textoAvisos()); }
