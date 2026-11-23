@@ -3,8 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0f766e">
+  <meta name="theme-color" content="#07080c">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Finanças">
   <title>Minhas Finanças</title>
@@ -14,61 +15,73 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <!-- Tela de login -->
-  <section id="login" class="screen hidden">
-    <div class="login-card">
-      <img src="icons/icon-192.png" alt="" width="72" height="72">
+  <div class="bg-art" aria-hidden="true">
+    <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div><div class="blob b4"></div>
+  </div>
+
+  <!-- Login -->
+  <section id="login" class="hidden">
+    <div class="login-card g">
+      <div class="logo">R$</div>
       <h1>Minhas Finanças</h1>
-      <p>Contas a pagar, contas pagas, entradas e quanto sobra, sincronizado entre seus aparelhos.</p>
+      <p>Contas, cartões, orçamentos e metas.<br>Sincronizado entre seus aparelhos.</p>
       <button id="btn-login" class="btn primary big">Entrar com Google</button>
       <p id="login-erro" class="erro"></p>
     </div>
   </section>
 
   <!-- App -->
-  <section id="app" class="screen hidden">
-    <header class="topbar">
-      <button class="icon-btn" id="mes-ant" aria-label="Mês anterior">‹</button>
-      <div class="mes-titulo">
+  <section id="app" class="hidden">
+    <header class="top">
+      <button id="avatar" class="avatar" data-a="menu" aria-label="Menu"></button>
+      <div class="mes-pill g">
+        <button id="mes-ant" aria-label="Mês anterior">‹</button>
         <span id="mes-label"></span>
-        <small id="sync-status"></small>
+        <button id="mes-prox" aria-label="Próximo mês">›</button>
       </div>
-      <button class="icon-btn" id="mes-prox" aria-label="Próximo mês">›</button>
-      <button class="icon-btn menu-btn" id="btn-menu" aria-label="Menu">⋮</button>
+      <button id="btn-olho" class="ico g" aria-label="Ocultar valores"></button>
     </header>
 
-    <div id="menu" class="menu hidden">
+    <div id="menu" class="menu g hidden">
       <div class="menu-user" id="menu-user"></div>
-      <button id="btn-hoje">Ir para o mês atual</button>
-      <button id="btn-recorrentes">Gerenciar recorrências</button>
-      <button id="btn-exportar">Exportar backup (JSON)</button>
-      <button id="btn-sair" class="danger-text">Sair</button>
+      <button data-a="hoje">📅 Ir para o mês atual</button>
+      <button data-a="recorrencias">🔁 Recorrências</button>
+      <button data-a="exportar">💾 Exportar backup</button>
+      <button data-a="sair" class="danger-text">↪ Sair</button>
+      <div class="menu-status" id="sync-status"></div>
     </div>
 
     <main id="conteudo"></main>
 
-    <button id="fab" class="fab" aria-label="Adicionar">+</button>
-
-    <nav class="tabbar">
-      <button data-tab="resumo" class="active"><span>📊</span>Resumo</button>
-      <button data-tab="apagar"><span>🧾</span>A pagar</button>
-      <button data-tab="pagas"><span>✅</span>Pagas</button>
-      <button data-tab="entradas"><span>💰</span>Entradas</button>
+    <nav class="dock g">
+      <button data-tela="inicio" class="active">
+        <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>Início</span>
+      </button>
+      <button data-tela="lanc">
+        <svg viewBox="0 0 24 24"><path d="M9 6h12M9 12h12M9 18h12"/><circle cx="4" cy="6" r="1.2"/><circle cx="4" cy="12" r="1.2"/><circle cx="4" cy="18" r="1.2"/></svg><span>Contas</span>
+      </button>
+      <button id="fab" class="fab" data-a="novo" aria-label="Adicionar">+</button>
+      <button data-tela="planejar">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2"/></svg><span>Planejar</span>
+      </button>
+      <button data-tela="relatorios">
+        <svg viewBox="0 0 24 24"><path d="M4 20V11M10 20V5M16 20v-6M21 20H3"/></svg><span>Relatórios</span>
+      </button>
     </nav>
   </section>
 
-  <!-- Modal genérico -->
   <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
-    <div class="modal-box">
-      <div class="modal-head">
+    <div class="sheet g">
+      <div class="grabber"></div>
+      <div class="sheet-head">
         <h2 id="modal-titulo"></h2>
-        <button class="icon-btn" id="modal-fechar" aria-label="Fechar">✕</button>
+        <button class="ico g" id="modal-fechar" aria-label="Fechar">✕</button>
       </div>
       <div id="modal-corpo"></div>
     </div>
   </div>
 
-  <div id="toast" class="toast hidden"></div>
+  <div id="toast" class="toast g hidden"></div>
 
   <script type="module" src="app.js"></script>
 </body>
