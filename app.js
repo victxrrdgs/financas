@@ -1,8 +1,9 @@
-import { criarStore, modoLocal, COLECOES } from './store.js?v=2.5';
-import * as C from './calc.js?v=2.5';
-import * as L from './lock.js?v=2.5';
+import { criarStore, modoLocal, COLECOES } from './store.js?v=2.6';
+import * as C from './calc.js?v=2.6';
+import * as P from './planos.js?v=2.6';
+import * as L from './lock.js?v=2.6';
 
-const VERSAO = '2.5';
+const VERSAO = '2.6';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -80,6 +81,7 @@ function mostrarApp() {
   $('#avatar').innerHTML = avatarHTML();
   if (L.config()) travar();
   paradas.forEach((f) => f());
+  setTimeout(abrirAtalho, 1500);
   paradas = COLECOES.map((col) => store.assinar(col, (lista, doServidor) => {
     D[col] = lista; srv[col] = doServidor;
     if (col === 'config') {
@@ -119,7 +121,8 @@ function gerarRecorrentes() {
       const col = r.tipo === 'entrada' ? 'entradas' : r.tipo === 'compra' ? 'compras' : 'contas';
       if (D[col].some((x) => x.id === id) || geradosNestaSessao.has(id)) continue;
       geradosNestaSessao.add(id);
-      const doc = { descricao: r.descricao, valor: r.valor, data: C.dataNoPeriodo(mes, r.dia), recorrenteId: r.id, carteiraId: r.carteiraId || null };
+      const desc = r.financiamento ? `${r.descricao} · parcela ${(Number(r.parcelaInicial) || 1) + P.mesesEntre(r.inicio, mes)}/${r.totalParcelas}` : r.descricao;
+      const doc = { descricao: desc, valor: r.valor, data: C.dataNoPeriodo(mes, r.dia), recorrenteId: r.id, carteiraId: r.carteiraId || null };
       if (col === 'contas') Object.assign(doc, { categoria: r.categoria || 'Outros', pago: false, pagoEm: null });
       if (col === 'compras') Object.assign(doc, { categoria: r.categoria || 'Assinaturas', parcelas: 1 });
       store.definir(col, id, doc);
@@ -134,7 +137,7 @@ function render() {
   $('#avatar').classList.toggle('ativo', tela === 'conta');
   $$('.dock [data-tela]').forEach((b) => b.classList.toggle('active', b.dataset.tela === tela));
   const el = $('#conteudo');
-  const html = { inicio: telaInicio, lanc: telaLanc, planejar: telaPlanejar, relatorios: telaRelatorios, conta: telaConta }[tela]();
+  const html = { inicio: telaInicio, lanc: telaLanc, planejar: telaPlanejar, relatorios: telaRelatorios, conta: telaConta, dividas: telaDividas, fluxo: telaFluxo }[tela]();
   el.innerHTML = html;
   animarHero();
 }
@@ -258,6 +261,7 @@ function cardSaude() {
     <div class="barra saude-barra"><div style="width:${s.nota}%"></div></div>
     <p class="saude-res">${s.resumo}</p>
     <div class="sinais">${s.sinais.map((x) => `<div class="sinal"><span>${cor[x.n]}</span><div><b>${esc(x.t)}</b><small>${esc(x.d)}</small></div></div>`).join('')}</div>
+    ${s.nivel !== 'verde' ? '<button class="btn big" style="margin-top:10px;position:relative" data-a="ir" data-id="dividas">📉 Ver plano de saída das dívidas</button>' : ''}
     <details class="dicas" ${dicasAbertas ? 'open' : ''}><summary>💡 ${s.dicas.length} dicas para melhorar</summary>
       ${s.dicas.map((d) => `<div class="dica"><span>${d.e}</span><p>${esc(d.t)}</p></div>`).join('')}
     </details>
@@ -284,7 +288,7 @@ function telaInicio() {
   const cats = C.gastosPorCategoria(D, ym);
   const gastos = cats.reduce((t, [, v]) => t + v, 0);
   const proximos = [...r.abertos].sort((a, b) => a.data.localeCompare(b.data)).slice(0, 4);
-  const ins = C.insights(D, ym, fmt, { comissoes: modCom() });
+  const ins = [...resumoSemanal(), ...C.insights(D, ym, fmt, { comissoes: modCom() })];
   const rc = modCom() ? C.resumoComissoes(D, ym) : null;
   const previsao = C.r2(r.previsao + (rc ? rc.previstoMes : 0));
   const proxCom = rc ? [...rc.pendentes].sort((a, b) => a.data.localeCompare(b.data))[0] : null;
@@ -315,6 +319,8 @@ function telaInicio() {
     <div class="hero-val ${r.sobra < 0 ? 'neg' : ''}" data-count="${r.sobra}">${fmt(r.sobra)}</div>
     <div class="hero-sub">Previsão pagando tudo${rc && rc.previstoMes ? ' e recebendo as comissões' : ''}: <b class="${previsao < 0 ? 'neg' : ''}">${fmt(previsao)}</b></div>
   </section>
+
+  ${cardPodeGastar()}
 
   <div class="grid2">
     <button class="card g" data-a="ir" data-id="planejar">
@@ -623,7 +629,11 @@ function telaPlanejar() {
   const carts = D.carteiras;
   const h = C.ymAtual();
   return `
-  <div class="sec" style="margin-top:12px">
+  <div class="grid2" style="margin-top:12px">
+    <button class="card g" data-a="ir" data-id="dividas"><span class="chev">›</span><div style="font-size:1.5rem">📉</div><div class="val" style="font-size:1rem;margin-top:8px">Plano das dívidas</div><div class="sub">Simulador e ordem de pagamento</div></button>
+    <button class="card g" data-a="ir" data-id="fluxo"><span class="chev">›</span><div style="font-size:1.5rem">📆</div><div class="val" style="font-size:1rem;margin-top:8px">Fluxo de caixa</div><div class="sub">Saldo previsto em 60 dias</div></button>
+  </div>
+  <div class="sec">
     <div class="sec-h"><h3>Orçamentos de ${C.nomeMes(ym).toLowerCase()}</h3><button data-a="novo-orcamento">+ Novo</button></div>
     ${orc.length ? `<div class="list g">${orc.map((o) => {
       const ci = C.catInfo(o.categoria);
@@ -789,6 +799,9 @@ function menuNovo() {
     <button data-a="nova-conta"><span>🧾</span><b>Conta a pagar</b><small>Boleto, aluguel, luz…</small></button>
     <button data-a="nova-entrada"><span>💰</span><b>Entrada</b><small>Salário, Pix recebido…</small></button>
     <button data-a="nova-compra"><span>💳</span><b>Compra no cartão</b><small>À vista ou parcelada</small></button>
+    <button data-a="novo-boleto"><span>🧾</span><b>Boleto</b><small>Cole ou escaneie o código</small></button>
+    <button data-a="novo-financiamento"><span>🏠</span><b>Financiamento</b><small>Parcelas fixas mensais</small></button>
+    <button data-a="importar-extrato" style="grid-column:1/-1"><span>📥</span><b>Importar extrato ou fatura</b><small>Arquivo CSV ou OFX do banco</small></button>
     <button data-a="nova-transf"><span>🔁</span><b>Transferência</b><small>Entre suas contas</small></button>
     ${modCom() ? '<button data-a="nova-comissao" style="grid-column:1/-1"><span>💼</span><b>Venda / comissão</b><small>Registrar uma venda fechada</small></button>' : ''}
   </div>`);
@@ -800,7 +813,7 @@ function formConta(c) {
   const rec = c.recorrenteId ? D.recorrentes.find((r) => r.id === c.recorrenteId) : null;
   abrirModal(novo ? 'Nova conta a pagar' : 'Editar conta', `<form id="f">
     ${campoValor(c.valor)}
-    <label>Descrição</label><input name="descricao" required maxlength="80" placeholder="Ex.: Aluguel, Luz, Internet" value="${esc(c.descricao)}">
+    <label>Descrição</label><input name="descricao" required maxlength="80" list="dl-hist" autocomplete="off" placeholder="Ex.: Aluguel, Luz, Internet" value="${esc(c.descricao)}">${datalistHistorico()}${c.codigo ? `<div class="aviso">🧾 Código do boleto: <code style="word-break:break-all">${esc(c.codigo)}</code><br><button type="button" class="btn" style="margin-top:8px;width:100%" data-a="copiar-codigo" data-id="${esc(c.codigo)}">Copiar código</button></div>` : ''}
     <div class="linha">
       <div><label>Vencimento</label><input name="data" type="date" required value="${c.data}"></div>
       <div><label>Categoria</label><select name="categoria">${optsCategorias(c.categoria)}</select></div>
@@ -811,6 +824,7 @@ function formConta(c) {
     ${blocoRecorrente(rec)}
     ${botoes(!novo)}
   </form>`);
+  ligarSugestoes($('#f'));
   $('#f').addEventListener('submit', (ev) => {
     ev.preventDefault();
     const f = new FormData(ev.target);
@@ -874,7 +888,7 @@ function formCompra(cp, cardId) {
   cp = cp || { descricao: '', valor: null, data: C.hojeISO(), parcelas: 1, categoria: 'Compras', carteiraId: cardId || cards[0].id };
   abrirModal(novo ? 'Compra no cartão' : 'Editar compra', `<form id="f">
     ${campoValor(cp.valor, 'Valor total')}
-    <label>Descrição</label><input name="descricao" required maxlength="80" placeholder="Ex.: Mercado, Tênis, iFood" value="${esc(cp.descricao)}">
+    <label>Descrição</label><input name="descricao" required maxlength="80" list="dl-hist" autocomplete="off" placeholder="Ex.: Mercado, Tênis, iFood" value="${esc(cp.descricao)}">${datalistHistorico()}
     <div class="linha">
       <div><label>Data da compra</label><input name="data" type="date" required value="${cp.data}"></div>
       <div><label>Parcelas</label><select name="parcelas">${Array.from({ length: 24 }, (_, i) => `<option value="${i + 1}" ${i + 1 === Number(cp.parcelas) ? 'selected' : ''}>${i === 0 ? 'À vista' : `${i + 1}x`}</option>`).join('')}</select></div>
@@ -897,6 +911,7 @@ function formCompra(cp, cardId) {
     $('#prev-parc').innerHTML = `${ps.length > 1 ? `${ps.length}x de <b>${fmt(ps[ps.length - 1].valor)}</b>` : `<b>${fmt(v)}</b> à vista`} · primeira na fatura de <b>${C.rotuloMes(ps[0].ym).toLowerCase()}</b>${ps.length > 1 ? `, última em ${C.rotuloMes(ps[ps.length - 1].ym).toLowerCase()}` : ''}.`;
   };
   form.addEventListener('input', prev); prev();
+  ligarSugestoes(form);
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();
     const f = new FormData(form);
@@ -941,6 +956,7 @@ function verFatura(cardId) {
     </div>
     ${f.valor > 0 || f.pago ? `<form id="f">
       ${f.pago ? '' : C.contasBancarias(D).length ? `<label>Pagar com</label><select name="carteiraId">${optsCarteiras(carteiraPadrao())}</select>` : ''}
+      <button type="button" class="btn big" data-a="conferir-fatura" data-id="${f.id}">🔍 Conferir com o valor do banco</button>
       <div class="acoes"><button type="button" class="btn" data-a="nova-compra" data-id="${card.id}">+ Compra</button>
       <button class="btn ${f.pago ? '' : 'primary'}">${f.pago ? 'Desfazer pagamento' : 'Pagar fatura'}</button></div>
     </form>` : `<div class="acoes"><button type="button" class="btn primary" data-a="nova-compra" data-id="${card.id}">+ Compra</button></div>`}`);
@@ -1008,6 +1024,8 @@ function formCarteira(c, tipoPadrao) {
         <label><input type="radio" name="sinal" value="-1" ${Number(c.saldoInicial || 0) < 0 ? 'checked' : ''}>➖ Negativo (devendo)</label>
       </div>
       <input name="saldoInicial" inputmode="decimal" placeholder="0,00" value="${Math.abs(Number(c.saldoInicial || 0)).toFixed(2).replace('.', ',')}">
+      ${novo ? '' : `<label>🔍 Conferir saldo: quanto o banco mostra hoje? (opcional)</label><input name="saldoReal" inputmode="decimal" placeholder="Saldo no app: ${fmt(C.saldoCarteira(D, c))}">`}
+      <label>Juros do cheque especial (% ao mês, opcional)</label><input name="jurosNegativo" inputmode="decimal" placeholder="Padrão: 8" value="${c.jurosNegativo ? String(c.jurosNegativo).replace('.', ',') : ''}">
       <div class="aviso">Quanto havia nesta conta ao começar a usar o app. Use <b>Negativo</b> se a conta está no cheque especial ou com saldo devedor. Entradas, contas pagas e transferências ligadas a ela atualizam o saldo, que também pode ficar negativo.</div>
     </div>
     <div id="campos-cartao">
@@ -1041,6 +1059,14 @@ function formCarteira(c, tipoPadrao) {
       // Aceita o sinal pelo seletor ou digitado ("-1.200,00").
       const v = C.parseValor(f.get('saldoInicial')) || 0;
       dados.saldoInicial = C.r2(Math.abs(v) * (v < 0 || f.get('sinal') === '-1' ? -1 : 1));
+      dados.jurosNegativo = C.parseValor(f.get('jurosNegativo')) || 0;
+      // Conferência: ajusta o saldo inicial para o saldo atual bater com o banco.
+      const real = String(f.get('saldoReal') || '').trim();
+      if (!novo && real) {
+        const rv = (real.includes('-') ? -1 : 1) * Math.abs(C.parseValor(real.replace('-', '')) || 0);
+        dados.saldoInicial = C.r2(Number(c.saldoInicial || 0) + (rv - C.saldoCarteira(D, c)));
+        toast(`Saldo conferido: ${fmt(rv)}`);
+      }
     }
     if (novo) store.adicionar('carteiras', dados); else store.definir('carteiras', c.id, dados);
     fecharModal(); toast(novo ? 'Carteira criada' : 'Carteira atualizada');
@@ -1471,8 +1497,330 @@ function excluirConta() {
   });
 }
 
+// ---------------- v2.6: fluxo, dívidas, boletos, financiamentos, importação ----------------
+function datalistHistorico() {
+  const vistos = new Set(); const ops = [];
+  [...C.vis(D.compras), ...C.vis(D.contas)].sort((x, y) => (y.data || '').localeCompare(x.data || '')).forEach((x) => {
+    const d = (x.descricao || '').replace(/\s*\(parcela.*$|\s*·\s*parcela.*$/i, '').trim();
+    if (d && !vistos.has(d.toLowerCase()) && ops.length < 80) { vistos.add(d.toLowerCase()); ops.push(d); }
+  });
+  return `<datalist id="dl-hist">${ops.map((o) => `<option value="${esc(o)}">`).join('')}</datalist>`;
+}
+// Ao escolher uma descrição já usada, repete categoria e cartão/conta da última vez.
+function ligarSugestoes(form) {
+  const campo = form.querySelector('[name=descricao]'); if (!campo) return;
+  campo.addEventListener('change', () => {
+    const d = campo.value.trim().toLowerCase(); if (!d) return;
+    const ult = [...C.vis(D.compras), ...C.vis(D.contas)].filter((x) => (x.descricao || '').toLowerCase().startsWith(d)).sort((x, y) => (y.data || '').localeCompare(x.data || ''))[0];
+    const cat = ult ? ult.categoria : P.categorizar(campo.value, []);
+    if (cat && form.categoria) form.categoria.value = cat;
+    if (ult && ult.carteiraId && form.carteiraId && [...form.carteiraId.options].some((o) => o.value === ult.carteiraId)) form.carteiraId.value = ult.carteiraId;
+    if (ult && form.valor && !form.valor.value) form.valor.value = Number(ult.valor).toFixed(2).replace('.', ',');
+    form.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+
+function resumoSemanal() {
+  const hoje = C.hojeISO();
+  const [a, m, d] = hoje.split('-').map(Number);
+  const ini = new Date(a, m - 1, d - new Date(a, m - 1, d).getDay());
+  const iso = (x) => `${x.getFullYear()}-${C.pad(x.getMonth() + 1)}-${C.pad(x.getDate())}`;
+  const s0 = iso(ini); const sAnt = iso(new Date(ini.getFullYear(), ini.getMonth(), ini.getDate() - 7));
+  const dia = Math.round((new Date(a, m - 1, d) - ini) / 86400000);
+  const fimAnt = iso(new Date(ini.getFullYear(), ini.getMonth(), ini.getDate() - 7 + dia));
+  const total = (de, ate) => C.vis(D.contas).filter((c) => c.pago && c.pagoEm >= de && c.pagoEm <= ate).reduce((t, c) => t + Number(c.valor), 0)
+    + C.vis(D.compras).filter((p) => p.data >= de && p.data <= ate && !p.recorrenteId).reduce((t, p) => t + Number(p.valor), 0);
+  const agora = total(s0, hoje); const antes = total(sAnt, fimAnt);
+  if (!agora && !antes) return [];
+  const dif = antes ? Math.round(((agora - antes) / antes) * 100) : null;
+  return [{ e: '🗓️', t: `Esta semana: ${fmt(agora)} em gastos${dif !== null ? ` (${dif > 0 ? '▲' : '▼'} ${Math.abs(dif)}% vs mesmo ponto da semana passada)` : ''}`, tipo: dif !== null && dif > 0 ? 'amber' : 'green' }];
+}
+
+function cardPodeGastar() {
+  const p = P.projecao(D, 60, { comissoes: modCom() });
+  const neg = p.min.s < 0;
+  return `<button class="card g pode" data-a="ir" data-id="fluxo" style="margin-bottom:12px">
+    <span class="chev">›</span>
+    <div class="lbl">💸 Pode gastar hoje</div>
+    <div class="val ${p.podeGastar <= 0 ? 'neg' : 'pos'}">${fmt(p.podeGastar)}<span style="font-size:.78rem;color:var(--muted);font-weight:500"> /dia${p.prox ? ` até ${C.dataBR(p.prox.d)}` : ''}</span></div>
+    ${miniGrafico(p.serie)}
+    <div class="sub">${neg ? `⚠️ O saldo previsto fica negativo: ${fmt(p.min.s)} em ${C.dataBR(p.min.d)}` : `Menor saldo previsto: ${fmt(p.min.s)} em ${C.dataBR(p.min.d)}`}</div>
+  </button>`;
+}
+
+function miniGrafico(serie, alto = 46) {
+  const vs = serie.map((x) => x.s); const max = Math.max(0, ...vs); const min = Math.min(0, ...vs); const amp = max - min || 1;
+  const W = 300; const pts = serie.map((x, i) => `${(i / (serie.length - 1)) * W},${alto - ((x.s - min) / amp) * alto}`).join(' ');
+  const z = alto - ((0 - min) / amp) * alto;
+  return `<svg viewBox="0 0 ${W} ${alto}" preserveAspectRatio="none" class="mini" style="width:100%;height:${alto}px;margin-top:8px;display:block">
+    <line x1="0" x2="${W}" y1="${z}" y2="${z}" stroke="rgba(255,255,255,.18)" stroke-dasharray="3 3" stroke-width="1"/>
+    <polyline points="${pts}" fill="none" stroke="${Math.min(...vs) < 0 ? '#fb7185' : '#4ade80'}" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
+}
+
+function telaFluxo() {
+  const p = P.projecao(D, 60, { comissoes: modCom() });
+  const ent = p.ev.filter((e) => e.v > 0).reduce((t, e) => t + e.v, 0); const sai = p.ev.filter((e) => e.v < 0).reduce((t, e) => t - e.v, 0);
+  return `<button class="link" data-a="ir" data-id="inicio" style="margin:10px 4px">‹ Voltar</button>
+  <div class="card g">
+    <div class="lbl">Fluxo de caixa · próximos 60 dias</div>
+    <div class="stats" style="margin-top:8px">
+      <div><div class="lbl">Saldo hoje</div><div class="val ${p.saldo0 < 0 ? 'neg' : ''}">${fmt(p.saldo0)}</div></div>
+      <div><div class="lbl">Entradas</div><div class="val pos">${fmt(ent)}</div></div>
+      <div><div class="lbl">Saídas</div><div class="val warn">${fmt(sai)}</div></div>
+    </div>
+    ${miniGrafico(p.serie, 120)}
+    <div class="barra-lbl"><span>hoje</span><span>+30 dias</span><span>+60 dias</span></div>
+    <div class="aviso">${p.min.s < 0 ? `⚠️ <b>Vai faltar dinheiro:</b> o saldo chega a ${fmt(p.min.s)} em ${C.dataBR(p.min.d)}. Antecipe uma entrada, negocie um vencimento ou corte gastos antes dessa data.` : `✅ O saldo não fica negativo nos próximos 60 dias. Menor ponto: ${fmt(p.min.s)} em ${C.dataBR(p.min.d)}.`}
+      <br>💸 Pode gastar <b>${fmt(p.podeGastar)}/dia</b>${p.prox ? ` até a próxima entrada (${C.dataBR(p.prox.d)}: ${esc(p.prox.t)})` : ' nos próximos 30 dias'}.</div>
+  </div>
+  <div class="sec"><div class="sec-h"><h3>Próximos lançamentos</h3></div>
+    ${p.ev.length ? `<div class="list g">${p.ev.slice(0, 40).map((e) => `<div class="row">
+      <div class="ic" style="--c:${e.v > 0 ? '#4ade80' : e.k === 'fatura' ? '#a78bfa' : e.k === 'vencida' ? '#fb7185' : '#fbbf24'}">${e.v > 0 ? '💰' : e.k === 'fatura' ? '💳' : e.k === 'vencida' ? '⚠️' : '🧾'}</div>
+      <div class="info"><div class="t">${esc(e.t)}</div><div class="m">${C.dataBR(e.d)}${e.k === 'vencida' ? ' · vencida (contada para hoje)' : ''} · saldo depois: <span class="${e.saldo < 0 ? 'neg' : ''}">${fmt(e.saldo)}</span></div></div>
+      <div class="v ${e.v > 0 ? 'pos' : ''}">${e.v > 0 ? '+' : '−'} ${fmt(Math.abs(e.v))}</div></div>`).join('')}</div>` : '<div class="vazio g">Nada previsto para os próximos 60 dias.</div>'}
+  </div>
+  <p class="rodape">A previsão usa o saldo das suas contas, contas a pagar, entradas, recorrências, faturas (com assinaturas) e comissões. Mantenha os saldos conferidos para ela ficar precisa.</p>`;
+}
+
+function telaDividas() {
+  const ds = P.listaDividas(D);
+  const p = prefs();
+  const estrategia = p.planoEstrategia || 'avalanche';
+  const totalD = C.soma(ds.map((d) => ({ valor: d.saldo })));
+  const jurosMes = ds.reduce((t, d) => t + (d.parcela ? 0 : (d.saldo * d.taxa) / 100), 0);
+  const base = P.simular(ds, 0, estrategia);
+  const aporte = Number(p.planoValor) || Math.ceil((base.minimo * 1.3) / 50) * 50;
+  const sim = P.simular(ds, aporte, estrategia);
+  const nomeDe = (id) => ds.find((d) => d.id === id)?.nome || id;
+  const quando = (n) => C.rotuloMes(C.somarMes(C.ymAtual(), n)).toLowerCase();
+  const fins = D.recorrentes.filter((r) => r.financiamento);
+  return `<button class="link" data-a="ir" data-id="planejar" style="margin:10px 4px">‹ Voltar</button>
+  <div class="card g">
+    <div class="lbl">📉 Plano de saída das dívidas</div>
+    <div class="stats" style="margin-top:8px">
+      <div><div class="lbl">Dívida total</div><div class="val neg">${fmt(totalD)}</div></div>
+      <div><div class="lbl">Juros por mês</div><div class="val warn">${fmt(jurosMes)}</div></div>
+      <div><div class="lbl">Dívidas</div><div class="val">${ds.length}</div></div>
+    </div>
+    ${jurosMes > 0 ? `<div class="aviso">Hoje você perde cerca de <b>${fmt(jurosMes)} por mês</b> (${fmt(jurosMes * 12)} por ano) só com juros das dívidas rotativas.</div>` : ''}
+  </div>
+  ${ds.length ? `<div class="sec"><div class="sec-h"><h3>Suas dívidas</h3></div><div class="list g">${ds.map((d) => `<div class="row">
+      <div class="ic" style="--c:${d.parcela ? '#60a5fa' : '#fb7185'}">${d.tipo === 'Financiamento' ? '🏠' : d.parcela ? '📆' : '🔥'}</div>
+      <div class="info"><div class="t">${esc(d.nome)}</div><div class="m">${esc(d.tipo)} · ${d.parcela ? `${d.restantes}x de ${fmt(d.parcela)}${d.juros ? ` · ${String(d.juros).replace('.', ',')}% a.m.` : ''}` : `juros ≈${d.taxa.toFixed(1).replace('.', ',')}% ao mês`}</div></div>
+      <div class="v neg">${fmt(d.saldo)}</div></div>`).join('')}</div></div>
+
+  <div class="sec"><div class="sec-h"><h3>Simulador</h3></div><div class="card g">
+    <form id="f-plano">
+      <label>Quanto consigo separar por mês para as dívidas</label>
+      <input name="aporte" data-plano inputmode="decimal" value="${String(aporte).replace('.', ',')}" style="font-size:1.3rem;font-weight:700;text-align:center">
+      <label>Estratégia</label>
+      <div class="seg">
+        <label><input type="radio" name="estrategia" value="avalanche" data-plano ${estrategia === 'avalanche' ? 'checked' : ''}>🏔️ Avalanche</label>
+        <label><input type="radio" name="estrategia" value="bola" data-plano ${estrategia === 'bola' ? 'checked' : ''}>⛄ Bola de neve</label>
+      </div>
+      <div class="sub" style="margin-top:6px">${estrategia === 'avalanche' ? 'Avalanche: paga primeiro a dívida com o maior juro. É a que economiza mais.' : 'Bola de neve: paga primeiro a menor dívida. Dá vitórias rápidas e motiva.'}</div>
+    </form>
+    ${sim.falta > 0 || (!sim.viavel && sim.meses >= 120) ? `<div class="aviso" style="border-color:rgba(251,113,133,.4)">⚠️ ${fmt(aporte)} por mês não cobre as parcelas e os juros. O mínimo para não aumentar a dívida é cerca de <b>${fmt(base.minimo)}</b> por mês.</div>`
+      : `<div class="hstats" style="margin-top:14px">
+        <div><span>Livre das dívidas em</span><b>${sim.meses} ${sim.meses === 1 ? 'mês' : 'meses'}</b><small>${quando(sim.meses)}</small></div>
+        <div><span>Juros até lá</span><b>${fmt(sim.juros)}</b></div>
+        <div><span>Mínimo mensal</span><b>${fmt(base.minimo)}</b></div>
+      </div>
+      <div class="lbl-f" style="margin-top:16px;font-weight:600;color:var(--text)">Ordem de quitação</div>
+      <div class="list g">${sim.ordem.map((id, i) => `<div class="row"><div class="ic" style="--c:#c6f432">${i + 1}</div><div class="info"><div class="t">${esc(nomeDe(id))}</div><div class="m">quitada em ${quando(sim.quitacao[id])}</div></div></div>`).join('')}</div>`}
+  </div></div>` : '<div class="vazio g" style="margin-top:12px"><span class="big">🎉</span>Nenhuma dívida cadastrada. Continue assim!</div>'}
+
+  <div class="sec"><div class="sec-h"><h3>Financiamentos</h3><button data-a="novo-financiamento">+ Novo</button></div>
+    ${fins.length ? fins.map((r) => { const i = P.infoFinanciamento(D, r); return `<button class="meta g" data-a="editar-financiamento" data-id="${r.id}">
+      ${anel(i.pct, '#60a5fa', '🏠')}
+      <div class="info"><div class="t">${esc(r.descricao)}</div>
+      <div class="v">${fmt(i.saldo)} <span style="color:var(--faint);font-weight:500">restante</span></div>
+      <div class="m">${i.pagas} de ${i.total} pagas · ${fmt(r.valor)}/mês · termina em ${C.rotuloMes(r.fim).toLowerCase()}</div></div></button>`; }).join('')
+      : '<div class="vazio g">Cadastre financiamentos (carro, casa, crediário) para acompanhar o saldo devedor e quando termina.</div>'}
+  </div>`;
+}
+
+function formFinanciamento(r) {
+  const novo = !r;
+  r = r || { descricao: '', valor: null, dia: 10, totalParcelas: 48, parcelaInicial: 1, juros: '', categoria: 'Transporte', carteiraId: carteiraPadrao() };
+  const pagas = (Number(r.parcelaInicial) || 1) - 1;
+  abrirModal(novo ? 'Novo financiamento' : 'Editar financiamento', `<form id="f">
+    ${campoValor(r.valor, 'Valor da parcela')}
+    <label>Descrição</label><input name="descricao" required maxlength="60" placeholder="Ex.: Financiamento do carro" value="${esc(r.descricao)}">
+    <div class="linha">
+      <div><label>Total de parcelas</label><input name="total" type="number" min="1" max="480" required value="${r.totalParcelas}"></div>
+      <div><label>Já pagas</label><input name="pagas" type="number" min="0" max="480" required value="${pagas}"></div>
+    </div>
+    <div class="linha">
+      <div><label>Dia do vencimento</label><input name="dia" type="number" min="1" max="31" required value="${r.dia}"></div>
+      <div><label>Juros (% a.m., opcional)</label><input name="juros" inputmode="decimal" placeholder="Ex.: 1,49" value="${r.juros ? String(r.juros).replace('.', ',') : ''}"></div>
+    </div>
+    <div class="linha">
+      <div><label>Categoria</label><select name="categoria">${optsCategorias(r.categoria)}</select></div>
+      ${C.contasBancarias(D).length ? `<div><label>Pagar com</label><select name="carteiraId">${optsCarteiras(r.carteiraId)}</select></div>` : ''}
+    </div>
+    <div class="aviso" id="prev-fin"></div>
+    ${novo ? '' : '<div class="aviso">Mudanças valem para as próximas parcelas. As já lançadas continuam como estão.</div>'}
+    ${botoes(!novo)}
+  </form>`);
+  const form = $('#f');
+  const prev = () => {
+    const f = new FormData(form); const v = C.parseValor(f.get('valor')); const tot = Number(f.get('total')); const pg = Number(f.get('pagas'));
+    const rest = Math.max(0, tot - pg);
+    $('#prev-fin').innerHTML = v > 0 && tot ? `Faltam <b>${rest} parcelas</b> · saldo devedor <b>${fmt(rest * v)}</b> · termina em <b>${C.rotuloMes(C.somarMes(C.ymAtual(), rest - 1)).toLowerCase()}</b>.` : 'Preencha valor e parcelas.';
+  };
+  form.addEventListener('input', prev); prev();
+  form.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const f = new FormData(form); const valor = lerValor(f); if (valor === null) return;
+    const tot = Number(f.get('total')); const pg = Number(f.get('pagas'));
+    if (!(tot > 0) || pg < 0 || pg >= tot) { toast('Confira o total e as parcelas pagas'); return; }
+    const dados = { tipo: 'conta', financiamento: true, descricao: f.get('descricao').trim(), valor, dia: Number(f.get('dia')), totalParcelas: tot, juros: C.parseValor(f.get('juros')) || 0, categoria: f.get('categoria'), carteiraId: f.get('carteiraId') || null };
+    if (novo) {
+      const inicio = C.ymAtual();
+      Object.assign(dados, { inicio, parcelaInicial: pg + 1, fim: C.somarMes(inicio, tot - pg - 1) });
+      store.definir('recorrentes', store.novoId(), dados);
+    } else {
+      // Mantém o início; recalcula o fim a partir das parcelas pagas informadas.
+      const jaGeradas = P.mesesEntre(r.inicio, C.ymAtual());
+      Object.assign(dados, { inicio: r.inicio, parcelaInicial: pg + 1 - jaGeradas, fim: C.somarMes(C.ymAtual(), tot - pg - 1) });
+      store.atualizar('recorrentes', r.id, dados);
+    }
+    fecharModal(); toast(novo ? '🏠 Financiamento cadastrado' : 'Financiamento atualizado');
+  });
+  ligarExcluir(() => store.atualizar('recorrentes', r.id, { fim: C.somarMes(C.ymAtual(), -1) }));
+}
+
+function formBoleto() {
+  abrirModal('Boleto', `<form id="f">
+    <label>Código do boleto (linha digitável)</label>
+    <div class="linha"><div style="flex:3"><input name="codigo" inputmode="numeric" autocomplete="off" placeholder="Cole aqui os números do boleto"></div>
+    ${'BarcodeDetector' in window ? '<div style="flex:1"><button type="button" class="btn" style="width:100%;padding:14px 4px" data-escanear>📷 Ler</button></div>' : ''}</div>
+    <video id="cam" playsinline muted style="display:none;width:100%;border-radius:16px;margin-top:10px"></video>
+    <div class="aviso" id="info-bol">Cole a linha digitável: o app preenche valor e vencimento sozinho.</div>
+    ${campoValor(null)}
+    <label>Descrição</label><input name="descricao" required maxlength="80" list="dl-hist" placeholder="Ex.: Condomínio, IPVA, Parcela da moto">${datalistHistorico()}
+    <div class="linha">
+      <div><label>Vencimento</label><input name="data" type="date" required value="${dataPadrao()}"></div>
+      <div><label>Categoria</label><select name="categoria">${optsCategorias('Outros')}</select></div>
+    </div>
+    ${C.contasBancarias(D).length ? `<label>Pagar com</label><select name="carteiraId">${optsCarteiras(carteiraPadrao())}</select>` : ''}
+    <div class="acoes"><button class="btn primary">Salvar boleto</button></div>
+  </form>`);
+  const form = $('#f');
+  ligarSugestoes(form);
+  const aplicar = () => {
+    const b = P.lerBoleto(form.codigo.value);
+    if (!b) { $('#info-bol').textContent = form.codigo.value.replace(/\D/g, '').length ? 'Código incompleto: são 47 ou 48 números.' : 'Cole a linha digitável: o app preenche valor e vencimento sozinho.'; return; }
+    if (b.valor) form.valor.value = b.valor.toFixed(2).replace('.', ',');
+    if (b.vencimento) form.data.value = b.vencimento;
+    $('#info-bol').innerHTML = `✅ ${b.tipo === 'bancario' ? 'Boleto bancário' : 'Conta de consumo / convênio'}${b.valor ? ` · ${fmt(b.valor)}` : ''}${b.vencimento ? ` · vence ${C.dataBR(b.vencimento)}` : ' · confira o vencimento'}`;
+  };
+  form.codigo.addEventListener('input', aplicar);
+  const bt = form.querySelector('[data-escanear]');
+  if (bt) bt.addEventListener('click', async () => {
+    const v = $('#cam');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      v.srcObject = stream; v.style.display = 'block'; await v.play();
+      const det = new BarcodeDetector({ formats: ['itf', 'code_128'] });
+      const fim = Date.now() + 20000;
+      const loop = async () => {
+        if (!document.body.contains(v) || Date.now() > fim) { stream.getTracks().forEach((t) => t.stop()); v.style.display = 'none'; return; }
+        const r = await det.detect(v).catch(() => []);
+        const cod = r.map((x) => x.rawValue.replace(/\D/g, '')).find((x) => x.length === 44);
+        if (cod) { form.codigo.value = cod; aplicar(); stream.getTracks().forEach((t) => t.stop()); v.style.display = 'none'; toast('Código lido ✓'); return; }
+        requestAnimationFrame(loop);
+      };
+      loop();
+    } catch (e) { toast('Não consegui abrir a câmera'); }
+  });
+  form.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const f = new FormData(form); const valor = lerValor(f); if (valor === null) return;
+    store.adicionar('contas', { descricao: f.get('descricao').trim(), valor, data: f.get('data'), categoria: f.get('categoria'), carteiraId: f.get('carteiraId') || null, pago: false, pagoEm: null, codigo: f.get('codigo').replace(/\D/g, '') || null });
+    fecharModal(); toast('🧾 Boleto salvo em contas a pagar');
+  });
+}
+
+function conferirFatura(id) {
+  const [cardId] = id.split('_'); const card = carteira(cardId); if (!card) return;
+  const f = C.faturaDe(D, card, id.slice(cardId.length + 1));
+  abrirModal('Conferir fatura', `<form id="f">
+    <div class="aviso" style="margin-top:4px">No app: <b>${fmt(f.valor)}</b>. Digite o total que aparece no app do banco para esta fatura (${C.rotuloMes(f.ym).toLowerCase()}).</div>
+    ${campoValor(null, 'Total no banco')}
+    <div class="aviso" id="dif"></div>
+    <div class="acoes"><button class="btn primary">Ajustar</button></div>
+  </form>`);
+  const form = $('#f');
+  form.addEventListener('input', () => { const v = C.parseValor(form.valor.value); $('#dif').innerHTML = v > 0 ? `Diferença: <b>${fmt(v - f.valor)}</b>. Será lançado um ajuste nesta fatura.` : ''; });
+  form.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const v = C.parseValor(form.valor.value); if (!(v >= 0)) { toast('Informe o valor'); return; }
+    const dif = C.r2(v - f.valor); if (Math.abs(dif) < 0.01) { fecharModal(); toast('✅ Já está igual ao banco'); return; }
+    const [y, m, d] = f.fecha.split('-').map(Number); const x = new Date(y, m - 1, d - 1);
+    const data = `${x.getFullYear()}-${C.pad(x.getMonth() + 1)}-${C.pad(x.getDate())}`;
+    store.adicionar('compras', { carteiraId: card.id, descricao: `Ajuste de conferência (${C.nomeMes(f.ym, true).toLowerCase()})`, valor: dif, data, parcelas: 1, categoria: 'Cartão de crédito' });
+    fecharModal(); toast(`Fatura ajustada para ${fmt(v)}`);
+  });
+}
+
+function importarExtrato() {
+  const destinos = D.carteiras;
+  if (!destinos.length) { toast('Cadastre uma conta ou cartão primeiro'); return; }
+  abrirModal('Importar extrato ou fatura', `<form id="f">
+    <label>Para onde vão os lançamentos?</label>
+    <select name="destino">${destinos.map((c) => `<option value="${c.id}">${c.tipo === 'cartao' ? '💳' : '🏦'} ${esc(c.nome)}</option>`).join('')}</select>
+    <label>Arquivo (CSV ou OFX exportado do banco)</label>
+    <input name="arq" type="file" accept=".csv,.ofx,.txt,text/csv">
+    <div class="aviso">Nada é enviado para fora: o arquivo é lido no seu aparelho. Você revisa tudo antes de importar.</div>
+  </form><div id="prev-imp"></div>`);
+  const form = $('#f');
+  form.arq.addEventListener('change', async () => {
+    const arq = form.arq.files[0]; if (!arq) return;
+    const dest = carteira(form.destino.value);
+    const itens = P.analisarExtrato(await arq.text(), arq.name, dest, D);
+    if (!itens.length) { $('#prev-imp').innerHTML = '<div class="aviso">Não reconheci lançamentos neste arquivo. Ele precisa ter colunas de data, descrição e valor (ou ser OFX).</div>'; return; }
+    const sel = itens.map((x) => !x.ignorar && !x.duplicado);
+    const desenhar = () => {
+      const n = sel.filter(Boolean).length;
+      $('#prev-imp').innerHTML = `<div class="sec-h" style="margin-top:16px"><h3>${itens.length} lançamentos</h3></div>
+        <div class="list g">${itens.map((x, i) => `<label class="row imp" style="cursor:pointer">
+          <input type="checkbox" data-imp="${i}" ${sel[i] ? 'checked' : ''} style="width:20px;height:20px;accent-color:var(--accent)">
+          <div class="info"><div class="t">${esc(x.descricao)}</div><div class="m">${C.dataBR(x.data)} · ${C.catInfo(x.categoria).e} ${esc(x.categoria)}${x.duplicado ? ' · <span class="tag amber">já existe</span>' : ''}${x.ignorar ? ' · <span class="tag green">pagamento/crédito</span>' : ''}</div></div>
+          <div class="v ${x.gasto ? '' : 'pos'}">${x.gasto ? '' : '+ '}${fmt(x.restantes > 1 ? x.valor * x.restantes : x.valor)}</div></label>`).join('')}</div>
+        <div class="acoes"><button type="button" class="btn primary" data-importar>Importar ${n} ${n === 1 ? 'lançamento' : 'lançamentos'}</button></div>`;
+      $$('#prev-imp [data-imp]').forEach((c) => c.addEventListener('change', () => { sel[Number(c.dataset.imp)] = c.checked; desenhar(); }));
+      $('#prev-imp [data-importar]').addEventListener('click', () => {
+        let n2 = 0;
+        itens.forEach((x, i) => {
+          if (!sel[i]) return; n2++;
+          if (dest.tipo === 'cartao') store.adicionar('compras', { carteiraId: dest.id, descricao: x.descricao, valor: C.r2(x.valor * x.restantes), data: x.data, parcelas: x.restantes, categoria: x.categoria });
+          else if (x.gasto) store.adicionar('contas', { descricao: x.descricao, valor: x.valor, data: x.data, categoria: x.categoria, carteiraId: dest.id, pago: true, pagoEm: x.data });
+          else store.adicionar('entradas', { descricao: x.descricao, valor: x.valor, data: x.data, carteiraId: dest.id });
+        });
+        fecharModal(); toast(`📥 ${n2} lançamentos importados em ${dest.nome}`);
+      });
+    };
+    desenhar();
+  });
+}
+
+// Atalhos do ícone do app (?acao=...)
+function abrirAtalho() {
+  const acao = new URLSearchParams(location.search).get('acao'); if (!acao) return;
+  history.replaceState(null, '', location.pathname);
+  ({ compra: () => formCompra(), conta: () => formConta(), boleto: formBoleto, dividas: () => trocarTela('dividas') }[acao] || (() => {}))();
+}
+
 // ---------------- Eventos ----------------
 const ACOES = {
+  'novo-boleto': () => formBoleto(),
+  'novo-financiamento': () => formFinanciamento(),
+  'editar-financiamento': (id) => { const r = D.recorrentes.find((x) => x.id === id); if (r) formFinanciamento(r); },
+  'importar-extrato': () => importarExtrato(),
+  'conferir-fatura': (id) => conferirFatura(id),
+  'copiar-codigo': (id) => { navigator.clipboard?.writeText(id).then(() => toast('Código copiado ✓'), () => toast('Não consegui copiar')); },
   hoje: () => { if (ym !== C.ymAtual()) { ym = C.ymAtual(); mudarMes(0); } },
   'mes-picker': () => seletorMes(),
   ano: (id) => seletorMes(Number(id)),
@@ -1545,6 +1893,11 @@ function ligarEventos() {
   });
   $$('.dock [data-tela]').forEach((b) => b.addEventListener('click', () => trocarTela(b.dataset.tela)));
   document.addEventListener('change', (e) => {
+    if (e.target.matches('[data-plano]')) {
+      const f = new FormData($('#f-plano'));
+      salvarPrefs({ planoValor: C.parseValor(f.get('aporte')) || 0, planoEstrategia: f.get('estrategia') || 'avalanche' });
+      return;
+    }
     if (e.target.matches('[data-filtro-emp]')) { filtroEmpresa = e.target.value; render(); }
   });
   $('#mes-ant').addEventListener('click', () => mudarMes(-1));

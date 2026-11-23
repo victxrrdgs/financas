@@ -402,3 +402,7 @@ body.travado #app, body.travado #modal { display: none !important; }
 .mes-grid button.atual { border-color: var(--accent); }
 .mes-grid button.sel { background: #f5f5f7; color: #0b0b0f; }
 .mes-grid button:active { transform: scale(.96); }
+/* v2.6 */
+.pode .val { font-size: 1.6rem; }
+.mini { overflow: visible; }
+.row.imp .info { min-width: 0; }
