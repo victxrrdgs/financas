@@ -1,6 +1,6 @@
-import { criarStore, modoLocal, COLECOES } from './store.js';
-import * as C from './calc.js';
-import * as L from './lock.js';
+import { criarStore, modoLocal, COLECOES } from './store.js?v=2.1';
+import * as C from './calc.js?v=2.1';
+import * as L from './lock.js?v=2.1';
 
 const VERSAO = '2.1';
 
