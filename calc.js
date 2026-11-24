@@ -151,6 +151,7 @@ export function faturaDe(D, card, ym, prof = 0) {
     tipo: 'fatura', id, card, ym, itens, valorItens, saldoAnterior, jurosEst, anteriores, mesAnterior, valor,
     data, fecha: diaNoMes(somarMes(ym, Number(card.vencimento) <= Number(card.fechamento) ? -1 : 0), card.fechamento),
     pago, pagoEm: doc.pagoEm || null, carteiraId: doc.carteiraId || null, valorPago: doc.valor || 0, quitadaPor: doc.quitadaPor || null,
+    renegociada: !!doc.renegociada,
     rolada: !pago && valor > 0 && diasAte(data) < 0,
     descricao: `Fatura ${card.nome}`, categoria: 'Cartão de crédito',
   };
@@ -196,7 +197,8 @@ export function pagaveisMes(D, ym) {
 export function resumoMes(D, ym) {
   const itens = pagaveisMes(D, ym);
   const entradas = vis(D.entradas).filter((e) => noMes(e.data, ym));
-  const pagos = itens.filter((x) => x.pago);
+  // Fatura renegociada não teve dinheiro saindo: o acordo entra parcelado nas faturas seguintes.
+  const pagos = itens.filter((x) => x.pago && !x.renegociada);
   const abertos = itens.filter((x) => !x.pago);
   const entrou = soma(entradas);
   const pago = soma(pagos);
