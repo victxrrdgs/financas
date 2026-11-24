@@ -1,9 +1,9 @@
-import { criarStore, modoLocal, COLECOES } from './store.js?v=2.9.1';
-import * as C from './calc.js?v=2.9.1';
-import * as P from './planos.js?v=2.9.1';
-import * as L from './lock.js?v=2.9.1';
+import { criarStore, modoLocal, COLECOES } from './store.js?v=3.0';
+import * as C from './calc.js?v=3.0';
+import * as P from './planos.js?v=3.0';
+import * as L from './lock.js?v=3.0';
 
-const VERSAO = '2.9.1';
+const VERSAO = '3.0';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -1477,7 +1477,7 @@ async function exportarPlanilha() {
   gerandoPlanilha = true;
   toast('Gerando planilha…');
   try {
-    const X = await import('./planilha.js?v=2.9.1');
+    const X = await import('./planilha.js?v=3.0');
     const { blob, lancamentos } = await X.gerarPlanilha({ D, ym, nomeCarteira: (id) => carteira(id)?.nome || '', usuario: prefs().apelido || (usuario.displayName || '').split(' ')[0] });
     baixar(`financas-${ym}.xlsx`, blob, blob.type);
     toast(`Planilha de ${C.rotuloMes(ym).toLowerCase()} pronta · ${plural(lancamentos, 'lançamento', 'lançamentos')}`);
