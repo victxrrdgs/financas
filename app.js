@@ -1,10 +1,10 @@
-import { criarStore, modoLocal, COLECOES } from './store.js?v=3.6';
-import * as C from './calc.js?v=3.6';
-import * as P from './planos.js?v=3.6';
-import * as L from './lock.js?v=3.6';
-import { interpretar, marcar } from './parser.js?v=3.6';
+import { criarStore, modoLocal, COLECOES } from './store.js?v=3.7';
+import * as C from './calc.js?v=3.7';
+import * as P from './planos.js?v=3.7';
+import * as L from './lock.js?v=3.7';
+import { interpretar, marcar } from './parser.js?v=3.7';
 
-const VERSAO = '3.6';
+const VERSAO = '3.7';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -150,9 +150,11 @@ function render() {
   C.configurar(prefs());
   $('#mes-label').textContent = C.rotuloMes(ym);
   $('#avatar').classList.toggle('ativo', tela === 'conta');
-  $$('.dock [data-tela]').forEach((b) => b.classList.toggle('active', b.dataset.tela === tela));
+  // Subtelas acendem a aba de onde se chega nelas (navegação do redesign: Hoje, Movimentos, Planejar, Mais).
+  const aba = { dividas: 'planejar', relatorios: 'mais', conta: 'mais', fluxo: 'mais', dividir: 'mais' }[tela] || tela;
+  $$('.dock [data-tela]').forEach((b) => b.classList.toggle('active', b.dataset.tela === aba));
   const el = $('#conteudo');
-  const html = { inicio: telaInicio, lanc: telaLanc, planejar: telaPlanejar, relatorios: telaRelatorios, conta: telaConta, dividas: telaDividas, fluxo: telaFluxo, dividir: telaDividir }[tela]();
+  const html = { inicio: telaInicio, lanc: telaLanc, planejar: telaPlanejar, relatorios: telaRelatorios, conta: telaConta, dividas: telaDividas, fluxo: telaFluxo, dividir: telaDividir, mais: telaMais }[tela]();
   el.innerHTML = html;
   animarHero();
 }
@@ -836,6 +838,21 @@ function blocoRecorrente(rec) {
 function ligarParar() {
   const b = $('#modal-corpo [data-parar]');
   if (b) b.addEventListener('click', () => { store.atualizar('recorrentes', b.dataset.parar, { fim: ym }); fecharModal(); toast('Não vai mais repetir após ' + C.rotuloMes(ym)); });
+}
+
+// ----- Mais (item 05): tudo que não é aba fica a no máximo 2 toques -----
+function telaMais() {
+  const ic = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
+  const itens = [
+    ['relatorios', 'Relatórios', 'Gastos por categoria, comparação com meses anteriores', ic('<path d="M4 20V11M10 20V5M16 20v-6M21 20H3"/>'), 'data-a="ir" data-id="relatorios"'],
+    ['fluxo', 'Fluxo de caixa', 'Saldo previsto dia a dia nos próximos 60 dias', ic('<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>'), 'data-a="ir" data-id="fluxo"'],
+    ['dividas', 'Dívidas', 'Plano para sair das dívidas, passo a passo', ic('<path d="M3 7h18v10H3z"/><path d="M7 12h4"/>'), 'data-a="ir" data-id="dividas"'],
+    ['dividir', 'Dividir contas', conexao() ? `Com ${esc(nomeOutro(conexao()))}` : 'Divida gastos com outra pessoa', ic('<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M2 20c1-3 3-5 6-5s5 2 6 5M14 15c3 0 5 2 6 5"/>'), 'data-a="ir-dividir"'],
+    ...(modCom() ? [['comissoes', 'Comissões', 'Vendas e comissões a receber', ic('<path d="M4 7h16v12H4z"/><path d="M9 7V5h6v2"/>'), 'data-a="ir-comissoes"']] : []),
+    ['conta', 'Perfil e configurações', 'Conta, bloqueio, Telegram, backup, módulos', ic('<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>'), 'data-a="ir" data-id="conta"'],
+  ];
+  return `<div class="sec" style="margin-top:18px"><div class="list g mais">${itens.map(([, t, d, i, a]) => `<button class="row" ${a}>
+    <span class="mais-ic">${i}</span><span class="info"><span class="t">${t}</span><span class="m">${d}</span></span><span class="seta">›</span></button>`).join('')}</div></div>`;
 }
 
 // ----- Lançar em uma linha (item 02) -----
@@ -1630,7 +1647,7 @@ async function exportarPlanilha() {
   gerandoPlanilha = true;
   toast('Gerando planilha…');
   try {
-    const X = await import('./planilha.js?v=3.6');
+    const X = await import('./planilha.js?v=3.7');
     const { blob, lancamentos } = await X.gerarPlanilha({ D, ym, nomeCarteira: (id) => carteira(id)?.nome || '', usuario: prefs().apelido || (usuario.displayName || '').split(' ')[0] });
     baixar(`financas-${ym}.xlsx`, blob, blob.type);
     toast(`Planilha de ${C.rotuloMes(ym).toLowerCase()} pronta · ${plural(lancamentos, 'lançamento', 'lançamentos')}`);
