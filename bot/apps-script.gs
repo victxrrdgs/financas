@@ -145,7 +145,8 @@ function callback(q) {
   var p = q.data.split(':'); var acao = p[0], col = COLS[p[1]], id = p[2];
   if (['ok', 'no', 'tc', 'pc'].indexOf(acao) >= 0) return callbackFoto(q, p);
   var chat = q.message.chat.id, msg = q.message.message_id;
-  if (acao === 'del') {
+  if (callbackAviso(acao, p, chat, msg)) { }
+  else if (acao === 'del') {
     fsReq('delete', col + '/' + id);
     tg('editMessageText', { chat_id: chat, message_id: msg, text: '↩️ Lançamento desfeito.' });
   } else if (acao === 'cat') {
@@ -158,6 +159,46 @@ function callback(q) {
     tg('editMessageText', { chat_id: chat, message_id: msg, text: q.message.text.replace(/🏷️ .*$/m, '🏷️ ' + cat), reply_markup: { inline_keyboard: [[{ text: '🏷️ Mudar categoria', callback_data: 'cat:' + p[1] + ':' + id }, { text: '↩️ Desfazer', callback_data: 'del:' + p[1] + ':' + id }]] } });
   }
   tg('answerCallbackQuery', { callback_query_id: q.id });
+}
+
+// Botões do aviso diário: pg (paguei), tr/tx (trocar conta), up (desfazer), ad/am (adiar), vf (ver fatura), av (ver tudo).
+// Devolve true se tratou.
+function callbackAviso(acao, p, chat, msg) {
+  var id = p[2];
+  var semBotoes = function () { tg('editMessageReplyMarkup', { chat_id: chat, message_id: msg, reply_markup: { inline_keyboard: [] } }); };
+  if (acao === 'pg') { pagarPeloBot(chat, id); return true; }
+  if (acao === 'tr') {
+    var bancos = CALC.contasBancarias(carregarD());
+    tg('editMessageReplyMarkup', { chat_id: chat, message_id: msg, reply_markup: { inline_keyboard: bancos.slice(0, 8).map(function (b) { return [{ text: b.nome, callback_data: 'tx:c:' + id + ':' + b.id }]; }) } });
+    return true;
+  }
+  if (acao === 'tx') { semBotoes(); pagarPeloBot(chat, id, p[3]); return true; }
+  if (acao === 'up') {
+    var c = deFS(fsReq('get', 'contas/' + id));
+    fsReq('patch', 'contas/' + id + '?updateMask.fieldPaths=pago&updateMask.fieldPaths=pagoEm', paraFS({ pago: false, pagoEm: null }));
+    tg('editMessageText', { chat_id: chat, message_id: msg, text: '↩️ Desfeito. ' + nomeCurto(c.descricao) + ' voltou para a pagar.' });
+    return true;
+  }
+  if (acao === 'ad') {
+    tg('editMessageReplyMarkup', { chat_id: chat, message_id: msg, reply_markup: { inline_keyboard: [[1, 3, 7].map(function (n) { return { text: '+' + n + (n === 1 ? ' dia' : ' dias'), callback_data: 'am:c:' + id + ':' + n }; })] } });
+    return true;
+  }
+  if (acao === 'am') {
+    var conta = deFS(fsReq('get', 'contas/' + id));
+    var d = new Date(conta.data + 'T12:00:00'); d.setDate(d.getDate() + Number(p[3]));
+    var nova = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    fsReq('patch', 'contas/' + id + '?updateMask.fieldPaths=data', paraFS({ data: nova }));
+    semBotoes();
+    responder(chat, 'Adiado: ' + esc(nomeCurto(conta.descricao)) + ' agora vence em ' + nova.slice(8) + '/' + nova.slice(5, 7) + '.');
+    return true;
+  }
+  if (acao === 'vf') {
+    var card = CALC.cartoes(carregarD()).filter(function (k) { return k.id === p[1]; })[0];
+    responder(chat, card ? cmdFatura(card.nome) : 'Não achei esse cartão.');
+    return true;
+  }
+  if (acao === 'av') { responder(chat, textoAvisos() || '✅ Nada para avisar hoje.', botoesAvisos()); return true; }
+  return false;
 }
 
 // ---------------- Web app ----------------
@@ -877,23 +918,34 @@ function cmdHoje() {
 
 // Texto do aviso diário (vazio = nada para avisar)
 function nomeCurto(s) { return String(s || '').replace(/^Fatura\s+/i, '').replace(/\s*[•·]+\s*\d{3,4}\b/g, '').replace(/\s+·\s+.*$/, '').trim(); }
+// Ações do último aviso montado (viram botões em botoesAvisos).
+var AVISO_ACOES = [];
 function textoAvisos(auto) {
   var D = carregarD();
   var ym = CALC.ymAtual();
   var atras = [], venc = [], fech = [], orc = [], vistos = {};
+  AVISO_ACOES = [];
+  var acao = function (x) {
+    if (x.tipo === 'fatura') AVISO_ACOES.push({ f: x.card.id, nome: nomeCurto(x.card.nome) });
+    else AVISO_ACOES.push({ c: x.id, nome: nomeCurto(x.descricao) });
+  };
   var abertos = CALC.resumoMes(D, ym).abertos.concat(CALC.resumoMes(D, CALC.somarMes(ym, 1)).abertos);
   abertos.forEach(function (x) {
     if (vistos[x.id]) return; vistos[x.id] = 1;
     var d = CALC.diasAte(x.data);
     var nome = esc(nomeCurto(x.descricao));
-    if (d < 0) atras.push({ v: Number(x.valor) || 0, rol: !!x.rolada, t: '• ' + nome + ' · ' + brl(x.valor) + ' · ' + (-d) + (d === -1 ? ' dia' : ' dias') });
-    else if (d <= 3) venc.push('• ' + nome + ' · ' + brl(x.valor) + ' · ' + (d === 0 ? 'hoje' : d === 1 ? 'amanhã' : 'em ' + d + ' dias'));
+    if (d < 0) { atras.push({ v: Number(x.valor) || 0, rol: !!x.rolada, t: '• ' + nome + ' · ' + brl(x.valor) + ' · ' + (-d) + (d === -1 ? ' dia' : ' dias') }); acao(x); }
+    else if (d <= 3) { venc.push('• ' + nome + ' · ' + brl(x.valor) + ' · ' + (d === 0 ? 'hoje' : d === 1 ? 'amanhã' : 'em ' + d + ' dias')); acao(x); }
   });
   CALC.cartoes(D).forEach(function (card) {
     for (var k = 0; k <= 2; k++) {
       var f = CALC.faturaDe(D, card, CALC.somarMes(ym, k));
       var d = CALC.diasAte(f.fecha);
-      if (!f.pago && d >= 0 && d <= 2 && f.valor > 0) { fech.push('• ' + esc(nomeCurto(card.nome)) + ' · ' + (d === 0 ? 'hoje' : d === 1 ? 'amanhã' : 'em ' + d + ' dias') + ' · ' + brl(f.valor)); break; }
+      if (!f.pago && d >= 0 && d <= 2 && f.valor > 0) {
+        fech.push('• ' + esc(nomeCurto(card.nome)) + ' · ' + (d === 0 ? 'hoje' : d === 1 ? 'amanhã' : 'em ' + d + ' dias') + ' · ' + brl(f.valor));
+        if (!AVISO_ACOES.some(function (a) { return a.f === card.id; })) AVISO_ACOES.push({ f: card.id, nome: nomeCurto(card.nome) });
+        break;
+      }
     }
   });
   var P = PropertiesService.getScriptProperties();
@@ -921,6 +973,32 @@ function textoAvisos(auto) {
   return t;
 }
 
+// Botões do aviso: até 3 pendências acionáveis, depois "Ver tudo".
+function botoesAvisos() {
+  var curto = function (s) { s = String(s || ''); return s.length > 18 ? s.slice(0, 17) + '…' : s; };
+  var linhas = AVISO_ACOES.slice(0, 3).map(function (a) {
+    return a.c
+      ? [{ text: '✓ Paguei ' + curto(a.nome), callback_data: 'pg:c:' + a.c }, { text: 'Adiar', callback_data: 'ad:c:' + a.c }]
+      : [{ text: 'Ver fatura ' + curto(a.nome), callback_data: 'vf:' + a.f }];
+  });
+  if (AVISO_ACOES.length > 3) linhas.push([{ text: 'Ver tudo', callback_data: 'av' }]);
+  return linhas.length ? linhas : null;
+}
+
+// Marca a conta como paga (ou desfaz) e responde com o saldo da carteira.
+function pagarPeloBot(chat, id, cartId) {
+  var c = deFS(fsReq('get', 'contas/' + id));
+  var D = carregarD();
+  var bancos = CALC.contasBancarias(D);
+  var cart = bancos.filter(function (b) { return b.id === (cartId || c.carteiraId); })[0] || bancos[0];
+  if (!cart) return responder(chat, 'Cadastre uma conta bancária no app para marcar pagamentos pelo bot.');
+  fsReq('patch', 'contas/' + id + '?updateMask.fieldPaths=pago&updateMask.fieldPaths=pagoEm&updateMask.fieldPaths=carteiraId',
+    paraFS({ pago: true, pagoEm: hojeSP(0), carteiraId: cart.id }));
+  var saldo = CALC.saldoCarteira(carregarD(), cart);
+  var bt = [[{ text: 'Trocar conta', callback_data: 'tr:c:' + id }, { text: '↩️ Desfazer', callback_data: 'up:c:' + id }]];
+  return responder(chat, 'Feito. ' + esc(nomeCurto(c.descricao)) + ' paga com ' + esc(cart.nome) + ' (saldo agora ' + brl(saldo) + ').', bt);
+}
+
 // Rodado pelo gatilho diário (8h)
 function avisoDiario() {
   var alvos = [];
@@ -929,7 +1007,7 @@ function avisoDiario() {
   var m = chatsVinculados();
   Object.keys(m).forEach(function (c) { alvos.push([c, m[c].uid]); });
   alvos.forEach(function (a) {
-    try { UID = a[1]; var t = textoAvisos(true); if (t) responder(a[0], t); if (new Date().getDay() === 0) responder(a[0], resumoSemanal()); }
+    try { UID = a[1]; var t = textoAvisos(true); if (t) responder(a[0], t, botoesAvisos()); if (new Date().getDay() === 0) responder(a[0], resumoSemanal()); }
     catch (e) { console.log('aviso falhou p/ chat ' + a[0] + ': ' + e.message); }
   });
   UID = UID_DONO;
@@ -958,7 +1036,7 @@ function comandoConsulta(chat, texto) {
     else if (c === 'fatura' || c === 'faturas') responder(chat, cmdFatura(m[3]));
     else if (c === 'hoje') responder(chat, cmdHoje());
     else if (c === 'semana') responder(chat, resumoSemanal());
-    else if (c === 'avisos') responder(chat, textoAvisos() || '✅ Nada para avisar hoje.');
+    else if (c === 'avisos') { var ta = textoAvisos(); responder(chat, ta || '✅ Nada para avisar hoje.', ta ? botoesAvisos() : null); }
   } catch (e) { responder(chat, '⚠️ Erro na consulta: ' + e.message); }
   return true;
 }
