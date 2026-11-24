@@ -492,3 +492,9 @@ body.travado #app, body.travado #modal { display: none !important; }
 /* Guia de dívidas: texto dos passos em várias linhas */
 .guia .m { white-space: normal; line-height: 1.45; margin-top: 4px; }
 .guia .row { align-items: flex-start; }
+
+/* Plano mês a mês */
+.plano-mes .mes-plano { padding: 12px 2px; border-top: 1px solid var(--line); }
+.plano-mes .mp-h { display: flex; justify-content: space-between; font-size: 15px; margin-bottom: 4px; }
+.plano-mes .mp-l { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--text-2); padding: 2px 0; }
+.plano-mes .mp-l.m { color: var(--muted); }

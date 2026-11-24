@@ -1,5 +1,5 @@
 // Dívidas, simulador de quitação, fluxo de caixa projetado, boletos e importação de extratos.
-import * as C from './calc.js?v=3.4';
+import * as C from './calc.js?v=3.5';
 
 export const TAXA_CHEQUE = 8; // % ao mês, padrão quando a conta não tem taxa cadastrada
 const pad = C.pad;
@@ -24,7 +24,8 @@ export function listaDividas(D) {
   const out = [];
   const hoje = C.hojeISO();
   C.emAtraso(D).forEach((x) => {
-    if (x.tipo === 'fatura') out.push({ id: x.id, nome: x.descricao, tipo: 'Fatura em atraso', saldo: x.valor, taxa: C.taxaAtraso(x.card) || 15, parcela: null });
+    // Rotativo do cartão: por lei (14.690/2023), juros e encargos não passam de 100% do valor original.
+    if (x.tipo === 'fatura') out.push({ id: x.id, nome: x.descricao, tipo: 'Fatura em atraso', saldo: x.valor, taxa: C.taxaAtraso(x.card) || 15, parcela: null, teto: x.valor });
     else out.push({ id: x.id, nome: x.descricao, tipo: 'Conta vencida', saldo: x.valor, taxa: 1, parcela: null });
   });
   C.contasBancarias(D).forEach((b) => {
@@ -65,19 +66,32 @@ export function simular(dividas, aporte, estrategia = 'avalanche') {
   }
   minimo = C.r2(minimo);
   const quitacao = {}; let mes = 0; let juros = 0; let falta = 0;
+  // Linha do tempo: o que vai para cada dívida em cada mês. jAcum respeita o teto legal do rotativo do cartão.
+  const linhas = [];
+  ds.forEach((d) => { d.jAcum = 0; });
   while (ds.some((d) => d.s > 0.005) && mes < 120) {
     mes++;
-    ds.forEach((d) => { if (d.s > 0 && !d.parcela && d.taxa > 0) { const j = (d.s * d.taxa) / 100; d.s += j; juros += j; } });
+    const pg = {}; let jMes = 0;
+    const pagar = (d, v) => { d.s -= v; pg[d.id] = C.r2((pg[d.id] || 0) + v); };
+    ds.forEach((d) => {
+      if (d.s > 0 && !d.parcela && d.taxa > 0) {
+        let j = (d.s * d.taxa) / 100;
+        if (d.teto) j = Math.max(0, Math.min(j, d.teto - d.jAcum));
+        d.s += j; d.jAcum += j; juros += j; jMes += j;
+      }
+    });
     let caixa = aporte;
-    ds.forEach((d) => { if (d.parcela && Math.abs(d.s) > 0.005) { const p = parcelaDoMes(d); d.s -= p; caixa -= p; } });
+    ds.forEach((d) => { if (d.parcela && Math.abs(d.s) > 0.005) { const p = parcelaDoMes(d); pagar(d, p); caixa -= p; } });
     if (caixa < 0) { falta = -caixa; break; }
     const rot = ds.filter((d) => d.s > 0.005 && !d.parcela).sort(estrategia === 'avalanche' ? (a, b) => b.taxa - a.taxa || a.s - b.s : (a, b) => a.s - b.s);
     const par = ds.filter((d) => d.s > 0.005 && d.parcela).sort((a, b) => a.s - b.s);
-    for (const d of [...rot, ...par]) { if (caixa <= 0) break; const p = Math.min(caixa, d.s); d.s -= p; caixa -= p; }
-    ds.forEach((d) => { if (d.s <= 0.005 && !quitacao[d.id]) quitacao[d.id] = mes; });
+    for (const d of [...rot, ...par]) { if (caixa <= 0) break; const p = Math.min(caixa, d.s); pagar(d, p); caixa -= p; }
+    const quitadas = [];
+    ds.forEach((d) => { if (d.s <= 0.005 && !quitacao[d.id]) { quitacao[d.id] = mes; quitadas.push(d.id); } });
+    linhas.push({ mes, pg, juros: C.r2(jMes), sobra: C.r2(Math.max(0, caixa)), quitadas });
   }
   const viavel = !falta && !ds.some((d) => d.s > 0.005);
-  return { viavel, meses: mes, juros: C.r2(juros), quitacao, minimo, falta: C.r2(falta), ordem: Object.entries(quitacao).sort((a, b) => a[1] - b[1]).map(([id]) => id) };
+  return { viavel, meses: mes, juros: C.r2(juros), quitacao, minimo, falta: C.r2(falta), linhas, ordem: Object.entries(quitacao).sort((a, b) => a[1] - b[1]).map(([id]) => id) };
 }
 
 // ---------------- Fluxo de caixa ----------------

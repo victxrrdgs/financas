@@ -1,10 +1,10 @@
-import { criarStore, modoLocal, COLECOES } from './store.js?v=3.4';
-import * as C from './calc.js?v=3.4';
-import * as P from './planos.js?v=3.4';
-import * as L from './lock.js?v=3.4';
-import { interpretar, marcar } from './parser.js?v=3.4';
+import { criarStore, modoLocal, COLECOES } from './store.js?v=3.5';
+import * as C from './calc.js?v=3.5';
+import * as P from './planos.js?v=3.5';
+import * as L from './lock.js?v=3.5';
+import { interpretar, marcar } from './parser.js?v=3.5';
 
-const VERSAO = '3.4';
+const VERSAO = '3.5';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -1630,7 +1630,7 @@ async function exportarPlanilha() {
   gerandoPlanilha = true;
   toast('Gerando planilha…');
   try {
-    const X = await import('./planilha.js?v=3.4');
+    const X = await import('./planilha.js?v=3.5');
     const { blob, lancamentos } = await X.gerarPlanilha({ D, ym, nomeCarteira: (id) => carteira(id)?.nome || '', usuario: prefs().apelido || (usuario.displayName || '').split(' ')[0] });
     baixar(`financas-${ym}.xlsx`, blob, blob.type);
     toast(`Planilha de ${C.rotuloMes(ym).toLowerCase()} pronta · ${plural(lancamentos, 'lançamento', 'lançamentos')}`);
@@ -1782,8 +1782,28 @@ function guiaDividas(ds, sim, aporte, minimo) {
   passos.push(sim.viavel
     ? { t: 'Siga o plano', d: `Separando ${fmt(aporte)} por mês, você fica livre das dívidas em ${plural(sim.meses, 'mês', 'meses')} (${C.rotuloMes(C.somarMes(C.ymAtual(), sim.meses)).toLowerCase()}), pagando ${fmt(sim.juros)} de juros até lá.` }
     : { t: 'Ajuste o valor mensal', d: `Com ${fmt(aporte)} por mês a dívida cresce. O mês mais pesado exige ${fmt(minimo)}: aumente o valor no simulador ou negocie o rotativo com o banco.` });
+  const mesDe = (n) => C.rotuloMes(C.somarMes(C.ymAtual(), n));
+  const nomeDe = (id) => esc(ds.find((d) => d.id === id)?.nome || id);
+  // Comparação das estratégias com o mesmo valor mensal, e o cenário de pagar só o mínimo.
+  const cenarios = [
+    ['Avalanche', 'maior juro primeiro', P.simular(ds, aporte, 'avalanche'), aporte],
+    ['Bola de neve', 'menor dívida primeiro', P.simular(ds, aporte, 'bola'), aporte],
+    ['Só o mínimo', `${fmt(minimo)} por mês`, P.simular(ds, minimo, prefs().planoEstrategia || 'avalanche'), minimo],
+  ];
+  const cmp = cenarios.map(([n, d, s]) => `<div class="row"><div class="info"><div class="t">${n}</div><div class="m">${d}</div></div>
+    <div class="v" style="text-align:right">${s.viavel ? `${plural(s.meses, 'mês', 'meses')}<div class="m">${fmt(s.juros)} de juros</div>` : '<span class="neg">não fecha</span>'}</div></div>`).join('');
+  const linhas = (sim.linhas || []).slice(0, 24).map((l) => {
+    const itens = Object.entries(l.pg).filter(([, v]) => Math.abs(v) > 0.005);
+    const total = C.r2(itens.reduce((t, [, v]) => t + v, 0));
+    return `<div class="mes-plano"><div class="mp-h"><b>${mesDe(l.mes)}</b><span>${fmt(total)}</span></div>
+      ${itens.map(([id, v]) => `<div class="mp-l"><span>${nomeDe(id)}${l.quitadas.includes(id) ? ' <b class="pos">quitada</b>' : ''}</span><span>${fmt(v)}</span></div>`).join('')}
+      ${l.juros > 0 ? `<div class="mp-l m"><span>Juros do mês</span><span>${fmt(l.juros)}</span></div>` : ''}</div>`;
+  }).join('');
   return `<div class="sec"><div class="sec-h"><h3>Seu plano, passo a passo</h3></div>
-    <div class="list g guia">${passos.map((p, i) => `<div class="row"><div class="ic" style="--c:#c6f432">${i + 1}</div><div class="info"><div class="t">${esc(p.t)}</div><div class="m">${p.d}</div></div></div>`).join('')}</div></div>`;
+    <div class="list g guia">${passos.map((p, i) => `<div class="row"><div class="ic" style="--c:#c6f432">${i + 1}</div><div class="info"><div class="t">${esc(p.t)}</div><div class="m">${p.d}</div></div></div>`).join('')}</div></div>
+  <div class="sec"><div class="sec-h"><h3>Comparar estratégias</h3></div><div class="list g guia">${cmp}</div>
+    <p class="vazio-txt" style="margin-top:8px">Mesmo valor mensal nas duas primeiras. O rotativo do cartão para de crescer quando os juros chegam a 100% da dívida, como manda a lei.</p></div>
+  ${linhas ? `<div class="sec"><details class="dicas plano-mes"><summary>Mês a mês: quanto pagar em cada dívida</summary>${linhas}</details></div>` : ''}`;
 }
 
 function telaDividas() {
