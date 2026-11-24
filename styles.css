@@ -463,3 +463,28 @@ body.travado #app, body.travado #modal { display: none !important; }
 .saude-mini b { font-size: 13px; font-weight: 600; }
 .saude-mini.s-verde b { color: var(--green); } .saude-mini.s-amarelo b { color: var(--amber); } .saude-mini.s-vermelho b { color: var(--red); }
 .toast-btn { margin-left: 12px; font-weight: 700; color: var(--lime); min-height: 32px; }
+
+/* ---------- Lançar em uma linha (item 02) ---------- */
+.lz .seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background: var(--bg); border-radius: 14px; padding: 4px; }
+.lz .seg button { min-height: 40px; border-radius: 10px; font-size: 13px; color: var(--muted); }
+.lz .seg button.on { background: var(--line); color: var(--text); font-weight: 600; }
+.lz-campo { position: relative; margin-top: 16px; }
+.lz-campo input, .lz-espelho { font: 400 24px/1.3 "Geist Mono", ui-monospace, monospace; letter-spacing: 0; padding: 12px 2px; white-space: pre; overflow: hidden; }
+.lz-campo input { position: relative; width: 100%; background: transparent; border: 0; border-bottom: 1px solid var(--line-hi); color: transparent; caret-color: var(--text); outline: none; }
+.lz-campo input::placeholder { color: var(--faint); }
+.lz-espelho { position: absolute; inset: 0; color: var(--text); pointer-events: none; }
+.lz-espelho span { border-radius: 6px; }
+.tk-valor { background: #c6f43226; color: var(--lime); }
+.tk-cart { background: #8fb4ff22; color: #a9c4ff; }
+.tk-desc { background: #ffffff12; }
+.lz-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; }
+.lz-grid label { display: flex; flex-direction: column; gap: 4px; background: var(--bg); border-radius: 16px; padding: 10px 12px; margin: 0; }
+.lz-grid span { font-size: 12px; color: var(--muted); }
+.lz-grid input, .lz-grid select { background: transparent; border: 0; padding: 0; min-height: 28px; font-size: 15px; color: var(--text); width: 100%; }
+.lz-grid small { font-size: 11px; color: var(--faint); }
+.lz-impacto { margin: 14px 2px 0; font-size: 13px; color: var(--muted); min-height: 1.2em; }
+.lz-impacto b { color: var(--text); font-weight: 500; }
+.lz-btns { display: grid; grid-template-columns: 1fr 1.4fr; gap: 8px; margin-top: 14px; }
+.lz-ok { background: var(--lime); color: var(--bg); border-color: transparent; min-height: 52px; font-weight: 700; }
+.lz-ok:disabled { opacity: .35; }
+.lz-full { display: block; margin: 12px auto 0; min-height: 44px; color: var(--muted); }

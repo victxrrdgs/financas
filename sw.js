@@ -1,8 +1,8 @@
 // Service worker: guarda os arquivos do app para abrir rápido e offline.
 // Os dados ficam no cache offline do próprio Firestore.
-const V = '3.1';
+const V = '3.2';
 const CACHE = 'financas-' + V ;
-const ARQUIVOS = ['./', 'index.html', `styles.css?v=${V}`, `app.js?v=${V}`, `store.js?v=${V}`, `calc.js?v=${V}`, `lock.js?v=${V}`, `planos.js?v=${V}`, `planilha.js?v=${V}`, 'firebase-config.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-192.png', 'icons/maskable-512.png'];
+const ARQUIVOS = ['./', 'index.html', `styles.css?v=${V}`, `app.js?v=${V}`, `store.js?v=${V}`, `calc.js?v=${V}`, `lock.js?v=${V}`, `planos.js?v=${V}`, `planilha.js?v=${V}`, `parser.js?v=${V}`, 'firebase-config.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-192.png', 'icons/maskable-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ARQUIVOS)).then(() => self.skipWaiting()));

@@ -90,6 +90,7 @@ var AJUDA = '<b>Como lançar</b> (é só escrever):\n' +
   'Depois é só tocar em <b>Mudar categoria</b> ou <b>Desfazer</b>.\nComandos: /ajuda · /contas';
 
 // ---------------- Interpretação ----------------
+// Manter em sincronia com parser.js do app (mesmas regras de leitura).
 function interpretar(texto, carteiras) {
   var t = norm(texto).replace(/r\$\s*/g, '');
   var tipo = 'compra';

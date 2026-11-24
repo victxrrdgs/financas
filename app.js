@@ -1,9 +1,10 @@
-import { criarStore, modoLocal, COLECOES } from './store.js?v=3.1';
-import * as C from './calc.js?v=3.1';
-import * as P from './planos.js?v=3.1';
-import * as L from './lock.js?v=3.1';
+import { criarStore, modoLocal, COLECOES } from './store.js?v=3.2';
+import * as C from './calc.js?v=3.2';
+import * as P from './planos.js?v=3.2';
+import * as L from './lock.js?v=3.2';
+import { interpretar, marcar } from './parser.js?v=3.2';
 
-const VERSAO = '3.1';
+const VERSAO = '3.2';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -837,6 +838,90 @@ function ligarParar() {
   if (b) b.addEventListener('click', () => { store.atualizar('recorrentes', b.dataset.parar, { fim: ym }); fecharModal(); toast('Não vai mais repetir após ' + C.rotuloMes(ym)); });
 }
 
+// ----- Lançar em uma linha (item 02) -----
+const ABAS_LANCAR = [['gasto', 'Gasto'], ['entrada', 'Entrada'], ['apagar', 'Conta a pagar'], ['transf', 'Transferir']];
+function abrirLancar(aba = 'gasto') {
+  if (aba === 'transf') { formTransf(); return; }
+  const cats = optsCategorias('Outros');
+  abrirModal('Lançar', `<div class="lz">
+    <div class="seg" role="tablist">${ABAS_LANCAR.map(([k, t]) => `<button type="button" role="tab" aria-selected="${k === aba}" class="${k === aba ? 'on' : ''}" data-a="lancar-aba" data-id="${k}">${t}</button>`).join('')}</div>
+    <div class="lz-campo"><div class="lz-espelho" aria-hidden="true"></div>
+      <input id="lz-txt" autocomplete="off" spellcheck="false" aria-label="Escreva o lançamento" placeholder="${aba === 'entrada' ? '1.200 salário itaú' : aba === 'apagar' ? '119,90 internet 10/12' : '50 salgado nubank'}"></div>
+    <div class="lz-grid">
+      <label><span>Valor</span><input id="lz-valor" inputmode="decimal" placeholder="R$ 0,00"></label>
+      <label><span>Onde</span><select id="lz-cart"><option value="">Escolha</option>${D.carteiras.map((c) => `<option value="${c.id}">${esc(c.nome)}</option>`).join('')}</select><small id="lz-fat"></small></label>
+      <label><span id="lz-cat-lbl">Categoria</span><select id="lz-cat">${cats}</select></label>
+      <label><span>Data</span><input id="lz-data" type="date" value="${C.hojeISO()}"></label>
+    </div>
+    <p class="lz-impacto" id="lz-imp"></p>
+    <div class="lz-btns"><button type="button" class="btn" data-a="novo-boleto">Ler boleto</button><button type="button" class="btn lz-ok" id="lz-ok" disabled>Lançar</button></div>
+    <button type="button" class="link lz-full" data-a="form-completo">Formulário completo</button>
+  </div>`);
+  ligarLancar(aba);
+}
+
+function ligarLancar(aba) {
+  const txt = $('#lz-txt'), esp = $('.lz-espelho'), ok = $('#lz-ok');
+  const campos = { valor: $('#lz-valor'), cart: $('#lz-cart'), cat: $('#lz-cat'), data: $('#lz-data') };
+  const mexido = {};  // campos que a pessoa ajustou à mão não são sobrescritos pela leitura do texto
+  Object.entries(campos).forEach(([k, el]) => el.addEventListener('input', () => { mexido[k] = true; atualizar(false); }));
+  let x = null;
+  const lido = () => {
+    const valor = C.parseValor(campos.valor.value);
+    const cart = carteira(campos.cart.value) || null;
+    let tipo = aba === 'entrada' ? 'entrada' : aba === 'apagar' ? 'apagar' : cart && cart.tipo === 'cartao' ? 'compra' : 'conta';
+    return { tipo, valor, cart, categoria: campos.cat.value, data: campos.data.value, descricao: (x && !x.erro && x.descricao) || campos.cat.value, parcelas: (x && x.parcelas) || 1 };
+  };
+  function atualizar(doTexto = true) {
+    if (doTexto) {
+      x = txt.value.trim() ? interpretar(txt.value, D.carteiras) : null;
+      esp.innerHTML = marcar(txt.value, x).map((p) => (p.c ? `<span class="${p.c}">${esc(p.t)}</span>` : esc(p.t))).join('');
+      if (x && !x.erro) {
+        if (!mexido.valor) campos.valor.value = x.valor.toFixed(2).replace('.', ',');
+        if (!mexido.cart) campos.cart.value = x.cart ? x.cart.id : (aba === 'apagar' || aba === 'entrada' ? carteiraPadrao() || '' : campos.cart.value || carteiraPadrao() || '');
+        if (!mexido.cat && aba !== 'entrada') campos.cat.value = x.categoria;
+        if (!mexido.data) campos.data.value = x.data;
+      } else if (!mexido.valor) campos.valor.value = '';  // texto sem valor: Lançar fica desativado
+    }
+    const l = lido();
+    $('#lz-cat-lbl').textContent = mexido.cat ? 'Categoria' : 'Categoria · sugerida';
+    const fat = l.cart && l.cart.tipo === 'cartao' && l.data ? C.parcelasDe({ data: l.data, valor: l.valor || 0, parcelas: 1 }, l.cart)[0] : null;
+    $('#lz-fat').textContent = fat ? `fatura ${C.nomeMes(fat.ym, true).toLowerCase()}` : '';
+    ok.disabled = !(l.valor > 0) || (aba !== 'entrada' && !l.cart);
+    $('#lz-imp').innerHTML = l.valor > 0 ? impactoLancamento(l) : '';
+  }
+  txt.addEventListener('input', () => atualizar(true));
+  txt.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !ok.disabled) ok.click(); });
+  ok.addEventListener('click', () => salvarLancamento(lido()));
+  setTimeout(() => txt.focus(), 50);
+  atualizar(true);
+}
+
+const docLancamento = (l) => {
+  if (l.tipo === 'compra') return ['compras', { carteiraId: l.cart.id, descricao: l.descricao, valor: l.valor, data: l.data, parcelas: l.parcelas, categoria: l.categoria }];
+  if (l.tipo === 'entrada') return ['entradas', { descricao: l.descricao === 'Outros' ? 'Entrada' : l.descricao, valor: l.valor, data: l.data, carteiraId: l.cart ? l.cart.id : null }];
+  const pago = l.tipo === 'conta';
+  return ['contas', { descricao: l.descricao, valor: l.valor, data: l.data, categoria: l.categoria, carteiraId: l.cart.id, pago, pagoEm: pago ? l.data : null }];
+};
+
+// "Depois disso, hoje cai de X para Y/dia", simulando o lançamento na projeção.
+function impactoLancamento(l) {
+  const op = { comissoes: modCom() };
+  const antes = P.projecao(D, 60, op).podeGastar;
+  const [col, doc] = docLancamento(l);
+  const depois = P.projecao({ ...D, [col]: [...D[col], { ...doc, id: '_sim' }] }, 60, op).podeGastar;
+  if (Math.abs(depois - antes) < 0.01) return 'Não muda o quanto você pode gastar hoje.';
+  return `Depois disso, hoje ${depois < antes ? 'cai' : 'sobe'} de <b>${fmt(antes)}</b> para <b>${fmt(depois)}</b>/dia.`;
+}
+
+async function salvarLancamento(l) {
+  const [col, doc] = docLancamento(l);
+  const id = await store.adicionar(col, { ...doc, origem: 'app' });
+  if (l.cart) localStorage.setItem('fin-ultima-carteira', l.cart.id);
+  fecharModal();
+  toast(`${doc.descricao} · ${fmt(doc.valor)} lançado`, () => store.remover(col, id));
+}
+
 function menuNovo() {
   abrirModal('Adicionar', `<div class="acao-grid">
     <button data-a="nova-conta"><span>🧾</span><b>Conta a pagar</b><small>Boleto, aluguel, luz…</small></button>
@@ -1507,7 +1592,7 @@ async function exportarPlanilha() {
   gerandoPlanilha = true;
   toast('Gerando planilha…');
   try {
-    const X = await import('./planilha.js?v=3.1');
+    const X = await import('./planilha.js?v=3.2');
     const { blob, lancamentos } = await X.gerarPlanilha({ D, ym, nomeCarteira: (id) => carteira(id)?.nome || '', usuario: prefs().apelido || (usuario.displayName || '').split(' ')[0] });
     baixar(`financas-${ym}.xlsx`, blob, blob.type);
     toast(`Planilha de ${C.rotuloMes(ym).toLowerCase()} pronta · ${plural(lancamentos, 'lançamento', 'lançamentos')}`);
@@ -2266,7 +2351,9 @@ const ACOES = {
   'cfg-categorias': () => configCategorias(),
   ir: (id) => trocarTela(id),
   sub: (id) => { sub = id; render(); },
-  novo: menuNovo,
+  novo: () => abrirLancar(),
+  'lancar-aba': (id) => abrirLancar(id),
+  'form-completo': menuNovo,
   'nova-conta': () => formConta(),
   'nova-entrada': () => formEntrada(),
   'nova-compra': (id) => formCompra(null, id),
