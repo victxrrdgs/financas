@@ -1,10 +1,10 @@
-import { criarStore, modoLocal, COLECOES } from './store.js?v=3.3.1';
-import * as C from './calc.js?v=3.3.1';
-import * as P from './planos.js?v=3.3.1';
-import * as L from './lock.js?v=3.3.1';
-import { interpretar, marcar } from './parser.js?v=3.3.1';
+import { criarStore, modoLocal, COLECOES } from './store.js?v=3.3.2';
+import * as C from './calc.js?v=3.3.2';
+import * as P from './planos.js?v=3.3.2';
+import * as L from './lock.js?v=3.3.2';
+import { interpretar, marcar } from './parser.js?v=3.3.2';
 
-const VERSAO = '3.3.1';
+const VERSAO = '3.3.2';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -1630,7 +1630,7 @@ async function exportarPlanilha() {
   gerandoPlanilha = true;
   toast('Gerando planilha…');
   try {
-    const X = await import('./planilha.js?v=3.3.1');
+    const X = await import('./planilha.js?v=3.3.2');
     const { blob, lancamentos } = await X.gerarPlanilha({ D, ym, nomeCarteira: (id) => carteira(id)?.nome || '', usuario: prefs().apelido || (usuario.displayName || '').split(' ')[0] });
     baixar(`financas-${ym}.xlsx`, blob, blob.type);
     toast(`Planilha de ${C.rotuloMes(ym).toLowerCase()} pronta · ${plural(lancamentos, 'lançamento', 'lançamentos')}`);
@@ -1800,7 +1800,7 @@ function telaDividas() {
       </div>
       <div class="sub" style="margin-top:6px">${estrategia === 'avalanche' ? 'Avalanche: paga primeiro a dívida com o maior juro. É a que economiza mais.' : 'Bola de neve: paga primeiro a menor dívida. Dá vitórias rápidas e motiva.'}</div>
     </form>
-    ${sim.falta > 0 || (!sim.viavel && sim.meses >= 120) ? `<div class="aviso" style="border-color:rgba(251,113,133,.4)">⚠️ ${fmt(aporte)} por mês não cobre as parcelas e os juros. O mínimo para não aumentar a dívida é cerca de <b>${fmt(base.minimo)}</b> por mês.</div>`
+    ${sim.falta > 0 || (!sim.viavel && sim.meses >= 120) ? `<div class="aviso" style="border-color:rgba(251,113,133,.4)">⚠️ ${fmt(aporte)} por mês não cobre as parcelas e os juros. O mês mais pesado exige cerca de <b>${fmt(base.minimo)}</b>; com menos que isso, a dívida aumenta.</div>`
       : `<div class="hstats" style="margin-top:14px">
         <div><span>Livre das dívidas em</span><b>${sim.meses} ${sim.meses === 1 ? 'mês' : 'meses'}</b><small>${quando(sim.meses)}</small></div>
         <div><span>Juros até lá</span><b>${fmt(sim.juros)}</b></div>

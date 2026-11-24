@@ -1,5 +1,5 @@
 // Dívidas, simulador de quitação, fluxo de caixa projetado, boletos e importação de extratos.
-import * as C from './calc.js?v=3.3.1';
+import * as C from './calc.js?v=3.3.2';
 
 export const TAXA_CHEQUE = 8; // % ao mês, padrão quando a conta não tem taxa cadastrada
 const pad = C.pad;
@@ -52,13 +52,26 @@ export function listaDividas(D) {
 // e o que sobrar do aporte vai para a dívida-alvo da estratégia.
 export function simular(dividas, aporte, estrategia = 'avalanche') {
   const ds = dividas.map((d) => ({ ...d, s: d.saldo }));
-  const minimo = C.r2(ds.reduce((t, d) => t + (d.parcela ? Math.min(d.parcela, d.s) : (d.s * d.taxa) / 100), 0));
+  // Parcela do mês; um crédito (parcela negativa, ex.: ajuste do banco) entra uma vez só, abatendo aquele mês.
+  const parcelaDoMes = (d) => (d.parcela < 0 ? d.s : Math.min(d.parcela, d.s));
+  // Mínimo = o mês mais pesado: parcelas daquele mês + juros das dívidas rotativas (sem deixá-las crescer).
+  let minimo = 0;
+  const ss = dividas.map((d) => ({ ...d, s: d.saldo }));
+  for (let m = 0; m < 120 && (m === 0 || ss.some((d) => d.parcela && Math.abs(d.s) > 0.005)); m++) {
+    let mesNec = 0;
+    ss.forEach((d) => {
+      if (!d.parcela) mesNec += (d.s * d.taxa) / 100;
+      else if (Math.abs(d.s) > 0.005) { const p = parcelaDoMes(d); mesNec += p; d.s -= p; }
+    });
+    minimo = Math.max(minimo, mesNec);
+  }
+  minimo = C.r2(minimo);
   const quitacao = {}; let mes = 0; let juros = 0; let falta = 0;
   while (ds.some((d) => d.s > 0.005) && mes < 120) {
     mes++;
     ds.forEach((d) => { if (d.s > 0 && !d.parcela && d.taxa > 0) { const j = (d.s * d.taxa) / 100; d.s += j; juros += j; } });
     let caixa = aporte;
-    ds.forEach((d) => { if (d.s > 0 && d.parcela) { const p = Math.min(d.parcela, d.s); d.s -= p; caixa -= p; } });
+    ds.forEach((d) => { if (d.parcela && Math.abs(d.s) > 0.005) { const p = parcelaDoMes(d); d.s -= p; caixa -= p; } });
     if (caixa < 0) { falta = -caixa; break; }
     const rot = ds.filter((d) => d.s > 0.005 && !d.parcela).sort(estrategia === 'avalanche' ? (a, b) => b.taxa - a.taxa || a.s - b.s : (a, b) => a.s - b.s);
     const par = ds.filter((d) => d.s > 0.005 && d.parcela).sort((a, b) => a.s - b.s);
