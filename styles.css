@@ -488,3 +488,7 @@ body.travado #app, body.travado #modal { display: none !important; }
 .lz-ok { background: var(--lime); color: var(--bg); border-color: transparent; min-height: 52px; font-weight: 700; }
 .lz-ok:disabled { opacity: .35; }
 .lz-full { display: block; margin: 12px auto 0; min-height: 44px; color: var(--muted); }
+
+/* Guia de dívidas: texto dos passos em várias linhas */
+.guia .m { white-space: normal; line-height: 1.45; margin-top: 4px; }
+.guia .row { align-items: flex-start; }

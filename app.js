@@ -1,10 +1,10 @@
-import { criarStore, modoLocal, COLECOES } from './store.js?v=3.3.3';
-import * as C from './calc.js?v=3.3.3';
-import * as P from './planos.js?v=3.3.3';
-import * as L from './lock.js?v=3.3.3';
-import { interpretar, marcar } from './parser.js?v=3.3.3';
+import { criarStore, modoLocal, COLECOES } from './store.js?v=3.4';
+import * as C from './calc.js?v=3.4';
+import * as P from './planos.js?v=3.4';
+import * as L from './lock.js?v=3.4';
+import { interpretar, marcar } from './parser.js?v=3.4';
 
-const VERSAO = '3.3.3';
+const VERSAO = '3.4';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -1630,7 +1630,7 @@ async function exportarPlanilha() {
   gerandoPlanilha = true;
   toast('Gerando planilha…');
   try {
-    const X = await import('./planilha.js?v=3.3.3');
+    const X = await import('./planilha.js?v=3.4');
     const { blob, lancamentos } = await X.gerarPlanilha({ D, ym, nomeCarteira: (id) => carteira(id)?.nome || '', usuario: prefs().apelido || (usuario.displayName || '').split(' ')[0] });
     baixar(`financas-${ym}.xlsx`, blob, blob.type);
     toast(`Planilha de ${C.rotuloMes(ym).toLowerCase()} pronta · ${plural(lancamentos, 'lançamento', 'lançamentos')}`);
@@ -1762,6 +1762,30 @@ function telaFluxo() {
   <p class="rodape">A previsão usa o saldo das suas contas, contas a pagar, entradas, recorrências, faturas (com assinaturas) e comissões. Mantenha os saldos conferidos para ela ficar precisa.</p>`;
 }
 
+// "Seu plano, passo a passo": a ordem prática para sair das dívidas, com os números de hoje.
+function guiaDividas(ds, sim, aporte, minimo) {
+  const r = C.resumoMes(D, C.ymAtual());
+  const saldo = C.saldoTotal(D);
+  const rot = ds.filter((d) => !d.parcela).sort((a, b) => b.taxa - a.taxa);
+  const par = ds.filter((d) => d.parcela > 0);
+  const parcelasMes = C.r2(par.reduce((t, d) => t + Math.min(d.parcela, d.saldo), 0));
+  const ultimo = par.reduce((m, d) => Math.max(m, d.restantes || 0), 0);
+  const passos = [];
+  passos.push(saldo >= r.aPagar
+    ? { t: 'Garanta as contas do mês', d: `Faltam ${fmt(r.aPagar)} em contas de ${C.nomeMes(C.ymAtual()).toLowerCase()} e você tem ${fmt(saldo)} nas contas. Pague-as primeiro: atrasar uma conta gera multa e juros novos.` }
+    : { t: 'Garanta as contas do mês', d: `Faltam ${fmt(r.aPagar)} em contas de ${C.nomeMes(C.ymAtual()).toLowerCase()}, mas o saldo é ${fmt(saldo)}. Priorize as que têm multa maior ou cortam serviço (luz, internet, financiamento) e veja o que dá para adiar sem juros.` });
+  if (rot.length) {
+    const d = rot[0]; const j = C.r2((d.saldo * d.taxa) / 100);
+    passos.push({ t: `Ataque o juro mais caro: ${d.nome}`, d: `${fmt(d.saldo)} a ≈${String(d.taxa).replace('.', ',')}% ao mês custam cerca de ${fmt(j)} por mês só de juros. Todo real extra vai para cá primeiro${rot.length > 1 ? `; depois, ${rot.slice(1).map((x) => esc(x.nome)).join(', ')}` : ''}.` });
+  }
+  if (par.length) passos.push({ t: 'Mantenha os acordos em dia', d: `${plural(par.length, 'acordo soma', 'acordos somam')} ${fmt(parcelasMes)} por mês, sem juros novos se pagos no vencimento${ultimo ? `; o último termina em ${C.rotuloMes(C.somarMes(C.ymAtual(), ultimo)).toLowerCase()}` : ''}. Atrasar uma parcela pode cancelar o acordo e trazer a dívida cheia de volta.` });
+  passos.push(sim.viavel
+    ? { t: 'Siga o plano', d: `Separando ${fmt(aporte)} por mês, você fica livre das dívidas em ${plural(sim.meses, 'mês', 'meses')} (${C.rotuloMes(C.somarMes(C.ymAtual(), sim.meses)).toLowerCase()}), pagando ${fmt(sim.juros)} de juros até lá.` }
+    : { t: 'Ajuste o valor mensal', d: `Com ${fmt(aporte)} por mês a dívida cresce. O mês mais pesado exige ${fmt(minimo)}: aumente o valor no simulador ou negocie o rotativo com o banco.` });
+  return `<div class="sec"><div class="sec-h"><h3>Seu plano, passo a passo</h3></div>
+    <div class="list g guia">${passos.map((p, i) => `<div class="row"><div class="ic" style="--c:#c6f432">${i + 1}</div><div class="info"><div class="t">${esc(p.t)}</div><div class="m">${p.d}</div></div></div>`).join('')}</div></div>`;
+}
+
 function telaDividas() {
   const ds = P.listaDividas(D);
   const p = prefs();
@@ -1808,7 +1832,8 @@ function telaDividas() {
       </div>
       <div class="lbl-f" style="margin-top:16px;font-weight:600;color:var(--text)">Ordem de quitação</div>
       <div class="list g">${sim.ordem.map((id, i) => `<div class="row"><div class="ic" style="--c:#c6f432">${i + 1}</div><div class="info"><div class="t">${esc(nomeDe(id))}</div><div class="m">quitada em ${quando(sim.quitacao[id])}</div></div></div>`).join('')}</div>`}
-  </div></div>` : '<div class="vazio g" style="margin-top:12px"><span class="big">🎉</span>Nenhuma dívida cadastrada. Continue assim!</div>'}
+  </div></div>
+  ${guiaDividas(ds, sim, aporte, base.minimo)}` : '<div class="vazio g" style="margin-top:12px"><span class="big">🎉</span>Nenhuma dívida cadastrada. Continue assim!</div>'}
 
   <div class="sec"><div class="sec-h"><h3>Financiamentos</h3><button data-a="novo-financiamento">+ Novo</button></div>
     ${fins.length ? fins.map((r) => { const i = P.infoFinanciamento(D, r); return `<button class="meta g" data-a="editar-financiamento" data-id="${r.id}">
