@@ -16,8 +16,17 @@ Ele grava direto no Firestore pela API REST com o token da conta (`ScriptApp.get
 | `/hoje` | quanto pode gastar por dia até a próxima entrada |
 | `/avisos` | vencimentos, faturas fechando, orçamentos e saldo negativo |
 | `/contas` · `/ajuda` | lista carteiras · ajuda |
+| `quanto gastei com mercado` · `… em outubro` | total da categoria no período (padrão: mês atual) |
+| `quanto gastei essa semana` · `… mês passado` | total do período e as 3 categorias principais |
+| `qual a maior despesa do mês` | os maiores gastos do período |
 
-Todo dia às 8h o bot manda os avisos sozinho (só quando há algo para avisar).
+Todo dia às 8h o bot manda os avisos sozinho (só quando há algo para avisar), com botões:
+**✓ Paguei** (marca paga na carteira da conta e mostra o saldo, com **Trocar conta** e **Desfazer**),
+**Adiar** (+1, +3 ou +7 dias), **Ver fatura** e **Ver tudo**. No dia 1 também manda o fechamento do mês anterior.
+
+A leitura de texto (`interpretar`) é a mesma do `parser.js` do app: mude nos dois.
+
+**Publicar mudanças no bot:** pelo `clasp` (`clasp push` com o código em `Código.js`), sem colar no editor.
 
 Os cálculos de saldo, fatura e projeção são uma cópia de `calc.js` e `planos.js` (objeto `CALC` no fim do arquivo).
 Se a regra mudar no app, copie de novo esses trechos.
