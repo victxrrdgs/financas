@@ -63,6 +63,12 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .mes-pill button { width: 36px; height: 36px; border-radius: 50%; font-size: 1.35rem; color: var(--muted); }
 .mes-pill button:active { background: var(--glass-hi); }
 .mes-pill span { font-weight: 600; font-size: .95rem; }
+/* Topo do redesign (item 01): mês só em texto, avatar e olho de 36px. */
+.top .mes-pill { background: transparent; }
+.top .mes-pill span { font-size: 15px; font-weight: 500; }
+.top .mes-pill button { color: var(--faint); }
+.top .avatar { width: 36px; height: 36px; }
+.top .ico { width: 36px; height: 36px; background: transparent; border: 1px solid var(--line); }
 .ico { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0; }
 .ico svg { width: 20px; height: 20px; }
 
