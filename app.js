@@ -1,9 +1,9 @@
-import { criarStore, modoLocal, COLECOES } from './store.js?v=3.0.2';
-import * as C from './calc.js?v=3.0.2';
-import * as P from './planos.js?v=3.0.2';
-import * as L from './lock.js?v=3.0.2';
+import { criarStore, modoLocal, COLECOES } from './store.js?v=3.1';
+import * as C from './calc.js?v=3.1';
+import * as P from './planos.js?v=3.1';
+import * as L from './lock.js?v=3.1';
 
-const VERSAO = '3.0.2';
+const VERSAO = '3.1';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -40,11 +40,18 @@ const fmtCurto = (v) => (ocultar ? '••' : new Intl.NumberFormat('pt-BR', { n
 const ICON_OLHO = '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
 const ICON_OLHO_OFF = '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><path d="M3 3l18 18"/></svg>';
 
-function toast(msg) {
+// desfazer: função opcional; mostra o botão "Desfazer" por 5 s.
+function toast(msg, desfazer) {
   const t = $('#toast');
   t.textContent = msg; t.classList.remove('hidden');
+  if (desfazer) {
+    const b = document.createElement('button');
+    b.className = 'toast-btn'; b.textContent = 'Desfazer';
+    b.onclick = () => { desfazer(); t.classList.add('hidden'); };
+    t.append(b);
+  }
   t.style.animation = 'none'; void t.offsetWidth; t.style.animation = '';
-  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.add('hidden'), 2400);
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.add('hidden'), desfazer ? 5000 : 2400);
 }
 
 const carteira = (id) => D.carteiras.find((c) => c.id === id);
@@ -293,90 +300,113 @@ function seletorMes(ano) {
 // ----- Início -----
 function telaInicio() {
   const r = C.resumoMes(D, ym);
-  const nome = prefs().apelido || (usuario.displayName || '').split(' ')[0] || 'você';
-  const [pIni, pFim] = C.periodo(ym);
-  const faixa = C.diaInicio() > 1 ? ` (${C.dataBR(pIni)} a ${C.dataBR(pFim)})` : '';
-  const bancos = C.contasBancarias(D);
-  const cats = C.gastosPorCategoria(D, ym);
-  const gastos = cats.reduce((t, [, v]) => t + v, 0);
-  const proximos = [...r.abertos].sort((a, b) => a.data.localeCompare(b.data)).slice(0, 4);
-  const ins = [...resumoSemanal(), ...C.insights(D, ym, fmt, { comissoes: modCom() })];
   const rc = modCom() ? C.resumoComissoes(D, ym) : null;
   const previsao = C.r2(r.previsao + (rc ? rc.previstoMes : 0));
-  const proxCom = rc ? [...rc.pendentes].sort((a, b) => a.data.localeCompare(b.data))[0] : null;
-  const cardCom = rc ? `<button class="card g" data-a="ir-comissoes" style="margin-top:12px">
-      <span class="chev">›</span>
-      <div class="lbl">💼 Comissões a receber</div>
-      <div class="stats" style="margin-top:8px">
-        <div><div class="lbl">Neste mês</div><div class="val pos">${fmt(rc.previstoMes)}</div></div>
-        <div><div class="lbl">Total pendente</div><div class="val">${fmt(rc.aReceber)}</div></div>
-        <div><div class="lbl">Recebido</div><div class="val">${fmt(rc.recebidoMes)}</div></div>
-      </div>
-      ${proxCom ? `<div class="sub" style="margin-top:10px">Próxima: ${esc(proxCom.com.empresa)} · ${C.dataBR(proxCom.data)} · ${fmt(proxCom.valor)}${rc.atrasadas.length ? ` · <span class="neg">${plural(rc.atrasadas.length, 'atrasada', 'atrasadas')}</span>` : ''}</div>` : ''}
-    </button>` : '';
-  const hora = new Date().getHours();
-  const saud = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite';
+  const p = P.projecao(D, 60, { comissoes: modCom() });
+  const hoje = C.hojeISO();
 
-  const dots = bancos.length
-    ? bancos.slice(0, 4).map((b) => `<span style="background:${b.cor || '#555'}">${b.tipo === 'dinheiro' ? '💵' : '🏦'}</span>`).join('')
-    : '<span style="background:rgba(255,255,255,.1)">＋</span>';
-  const barra = cats.length
-    ? `<div class="catbar">${cats.slice(0, 5).map(([k, v]) => `<i style="flex:${v};background:${C.catInfo(k).c}"></i>`).join('')}</div>`
-    : '<div class="catbar vazia"><i></i></div>';
+  // Cor do valor: âmbar quando cai abaixo de 30% da média diária gasta no mês, vermelho quando acaba.
+  const gastoDia = C.gastosPorDia(D, ym);
+  const passados = C.diasDoPeriodo(ym).filter((d) => d <= hoje);
+  const mediaDia = Object.values(gastoDia).reduce((t, v) => t + v, 0) / Math.max(1, passados.length);
+  const corHero = p.podeGastar <= 0 ? 'neg' : mediaDia > 0 && p.podeGastar < mediaDia * 0.3 ? 'warn' : '';
+
+  const nDias = p.prox ? Math.min(31, Math.max(1, C.diasAte(p.prox.d))) : 30;
+  const diaSemana = (iso) => ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][new Date(`${iso}T12:00`).getDay()];
+  const ateQuando = p.prox
+    ? `Até ${esc(p.prox.t.toLowerCase())}, ${diaSemana(p.prox.d)} ${C.dataBR(p.prox.d)} · ${plural(nDias, 'dia', 'dias')}`
+    : 'Nos próximos 30 dias';
 
   return `
-  <section class="hero">
-    <div class="ola">${saud}, ${esc(nome)}</div>
-    <div class="hero-lbl">Sobrou em ${C.nomeMes(ym).toLowerCase()}${faixa} · entrou − pago</div>
-    <div class="hero-val ${r.sobra < 0 ? 'neg' : ''}" data-count="${r.sobra}">${fmt(r.sobra)}</div>
-    <div class="hero-sub">Previsão pagando tudo${rc && rc.previstoMes ? ' e recebendo as comissões' : ''}: <b class="${previsao < 0 ? 'neg' : ''}">${fmt(previsao)}</b></div>
-  </section>
+  <button class="hero2" data-a="ir" data-id="fluxo">
+    <span class="h2-lbl">Pode gastar hoje</span>
+    <span class="h2-linha"><span class="hero-val ${corHero}" data-count="${p.podeGastar}">${fmt(p.podeGastar)}</span><span class="h2-suf">/dia</span></span>
+    <span class="h2-sub">${ateQuando}</span>
+    <span class="dias" style="grid-template-columns:repeat(${nDias},1fr)" aria-hidden="true">${'<i></i>'.repeat(nDias)}</span>
+    <span class="dias-leg"><span>HOJE ${Number(hoje.slice(8))}</span><span>${p.prox ? `${esc(p.prox.t.toUpperCase())} ${C.dataBR(p.prox.d)}` : '+30 DIAS'}</span></span>
+  </button>
 
-  ${cardPodeGastar()}
-
-  <div class="grid2">
-    <button class="card g" data-a="ir" data-id="planejar">
-      <span class="chev">›</span>
-      <div class="card-top"><div class="dots">${dots}</div></div>
-      <div class="lbl">Saldo em contas</div>
-      <div class="val ${C.saldoTotal(D) < 0 ? 'neg' : ''}">${bancos.length ? fmt(C.saldoTotal(D)) : '—'}</div>
-      <div class="sub">${bancos.length ? plural(bancos.length, 'carteira', 'carteiras') : 'Adicione suas contas'}</div>
-    </button>
-    <button class="card g" data-a="ir" data-id="relatorios">
-      <span class="chev">›</span>
-      <div class="card-top">${barra}</div>
-      <div class="lbl">Gastos · ${C.nomeMes(ym)}</div>
-      <div class="val">${fmt(gastos)}</div>
-      <div class="sub">${plural(cats.length, 'categoria', 'categorias')}</div>
-    </button>
+  <div class="duo">
+    <div class="mini-card"><span>Sobrou até agora</span><b class="${r.sobra < 0 ? 'neg' : ''}">${fmt(r.sobra)}</b></div>
+    <div class="mini-card"><span>Fim do mês previsto</span><b class="${previsao < 0 ? 'neg' : ''}">${fmt(previsao)}</b></div>
   </div>
 
-  <div class="card g">
-    <div class="stats">
-      <div><div class="lbl">Entrou</div><div class="val pos">${fmt(r.entrou)}</div></div>
-      <div><div class="lbl">Pago</div><div class="val">${fmt(r.pago)}</div></div>
-      <div><div class="lbl">A pagar</div><div class="val warn">${fmt(r.aPagar)}</div></div>
-    </div>
-    <div class="barra"><div style="width:${r.pct}%"></div></div>
-    <div class="barra-lbl"><span>${r.pct}% das contas pagas</span><span>${r.vencidas.length ? `<span class="neg">${plural(r.vencidas.length, 'vencida', 'vencidas')}</span>` : 'nenhuma vencida'}</span></div>
-  </div>
-  ${cardCom}
-  ${cardDividir()}
+  ${precisaDeVoce(r, p, rc)}
 
-  <div class="sec">${cardSaude()}</div>
+  ${saudeCompacta()}`;
+}
 
-  <div class="sec">
-    <div class="sec-h"><h3>Destaques do mês</h3></div>
-    <div class="scroll-x">${ins.map((i) => `<div class="insight g ${i.tipo}"><span class="e">${i.e}</span><span>${esc(i.t)}</span></div>`).join('')}</div>
-  </div>
+// "Precisa de você": só o que pede ação, na ordem de urgência (máx. 4 na Início).
+function itensPendentes(r, p, rc) {
+  const hoje = C.hojeISO();
+  const quando = (d) => `${['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][new Date(`${d}T12:00`).getDay()]}, ${C.dataBR(d)}`;
+  const l = [];
+  C.emAtraso(D).forEach((x) => {
+    const d = -C.diasAte(x.data);
+    l.push({ cor: 'red', t: x.descricao, s: `Venceu há ${plural(d, 'dia', 'dias')}`, sCls: 'neg', v: x.valor, pagar: x, primario: true });
+  });
+  const vistos = new Set(l.map((x) => x.pagar.id));
+  [...r.abertos, ...C.pagaveisMes(D, C.somarMes(C.ymAtual(), 1))]
+    .filter((x) => !x.pago && !vistos.has(x.id) && C.diasAte(x.data) >= 0 && C.diasAte(x.data) <= 5)
+    .sort((a, b) => a.data.localeCompare(b.data))
+    .forEach((x) => { vistos.add(x.id); l.push({ cor: 'amber', t: x.descricao, s: C.diasAte(x.data) === 0 ? 'Vence hoje' : `Vence ${quando(x.data)}`, v: x.valor, pagar: x }); });
+  C.cartoes(D).forEach((card) => {
+    [C.ymAtual(), C.somarMes(C.ymAtual(), 1)].map((m) => C.faturaDe(D, card, m))
+      .filter((f) => !f.pago && f.valor > 0 && f.fecha >= hoje && C.diasAte(f.fecha) <= 5)
+      .slice(0, 1)
+      .forEach((f) => {
+        const pct = Number(card.limite) > 0 ? Math.round((C.limiteUsado(D, card) / Number(card.limite)) * 100) : null;
+        l.push({ cor: 'muted', t: `${card.nome} fecha`, s: `Fecha ${C.dataBR(f.fecha)}${pct !== null ? ` · ${pct}% do limite` : ''}`, v: f.valor, acao: `data-a="ver-fatura" data-id="${card.id}"` });
+      });
+  });
+  C.orcamentosMes(D, ym).filter((o) => o.pct >= 90).forEach((o) => {
+    l.push({ cor: o.pct >= 100 ? 'red' : 'amber', t: `Orçamento de ${o.categoria}`, s: `${o.pct}% usado`, v: o.gasto, acao: 'data-a="ir" data-id="planejar"' });
+  });
+  if (p.min.s < 0) l.push({ cor: 'red', t: 'Saldo previsto negativo', s: `Chega a ${fmt(p.min.s)} em ${C.dataBR(p.min.d)}`, acao: 'data-a="ir" data-id="fluxo"' });
+  // Módulos ativos entram só quando têm algo a dizer (item 09).
+  if (rc && rc.previstoMes > 0) {
+    const prox = [...rc.pendentes].sort((a, b) => a.data.localeCompare(b.data))[0];
+    l.push({ cor: 'muted', t: 'Comissões a receber', s: prox ? `Próxima dia ${Number(prox.data.slice(8))}` : 'Neste mês', v: rc.previstoMes, acao: 'data-a="ir-comissoes"' });
+  }
+  const cx = conexao();
+  if (cx) {
+    const saldo = C.saldoDivisao(divItens, usuario.uid);
+    if (saldo) l.push({ cor: 'muted', t: saldo > 0 ? `${nomeOutro(cx)} te deve` : `Você deve a ${nomeOutro(cx)}`, s: 'Dividir contas', v: Math.abs(saldo), acao: 'data-a="ir-dividir"' });
+  }
+  return l;
+}
 
-  <div class="sec">
-    <div class="sec-h"><h3>Próximos vencimentos</h3><button data-a="ir" data-id="lanc">Ver tudo</button></div>
-    ${proximos.length ? `<div class="list g">${proximos.map(linhaPagavel).join('')}</div>`
-      : '<div class="vazio g"><span class="big">🎉</span>Nenhuma conta em aberto neste mês</div>'}
-  </div>
+function linhaPendente(x) {
+  const btn = x.pagar
+    ? `<button class="pg ${x.primario ? 'primario' : ''}" data-a="pagar-pendente" data-tipo="${x.pagar.tipo}" data-id="${x.pagar.id}">Pagar</button>`
+    : '<span class="seta">›</span>';
+  const abre = x.acao || (x.pagar ? `data-a="${x.pagar.tipo === 'fatura' ? 'ver-fatura' : 'editar-conta'}" data-id="${x.pagar.tipo === 'fatura' ? x.pagar.card.id : x.pagar.id}"` : '');
+  return `<div class="pend">
+    <i class="bol ${x.cor}"></i>
+    <div class="info" ${abre}><div class="t">${esc(x.t)}</div><div class="m ${x.sCls || ''}">${x.s}</div></div>
+    ${x.v !== undefined ? `<div class="v">${fmt(x.v)}</div>` : ''}
+    ${btn}
+  </div>`;
+}
 
-  <div class="sec">${heatmap()}</div>`;
+function precisaDeVoce(r, p, rc) {
+  const l = itensPendentes(r, p, rc);
+  const prox = [...r.abertos].filter((x) => !x.pago).sort((a, b) => a.data.localeCompare(b.data))[0];
+  return `<div class="sec">
+    <div class="sec-h"><h3>Precisa de você</h3>${l.length ? `<span class="cont">${l.length}</span>` : ''}</div>
+    ${l.length ? `<div class="list g">${l.slice(0, 4).map(linhaPendente).join('')}</div>
+      ${l.length > 4 ? `<button class="link ver-tudo" data-a="pendentes">Ver tudo</button>` : ''}`
+      : `<p class="vazio-txt">Nada pendente.${prox ? ` Próxima conta: ${esc(prox.descricao)} em ${C.dataBR(prox.data)}.` : ''}</p>`}
+  </div>`;
+}
+
+function saudeCompacta() {
+  const s = C.saudeFinanceira(D, ym, fmt);
+  return `<button class="card g saude-mini s-${s.nivel}" data-a="saude">
+    <span class="lbl">Saúde financeira</span>
+    <span class="barra saude-barra"><span style="width:${s.nota}%"></span></span>
+    <b>${s.nota} · ${esc(s.titulo)}</b>
+  </button>`;
 }
 
 // ----- Lançamentos -----
@@ -1477,7 +1507,7 @@ async function exportarPlanilha() {
   gerandoPlanilha = true;
   toast('Gerando planilha…');
   try {
-    const X = await import('./planilha.js?v=3.0.2');
+    const X = await import('./planilha.js?v=3.1');
     const { blob, lancamentos } = await X.gerarPlanilha({ D, ym, nomeCarteira: (id) => carteira(id)?.nome || '', usuario: prefs().apelido || (usuario.displayName || '').split(' ')[0] });
     baixar(`financas-${ym}.xlsx`, blob, blob.type);
     toast(`Planilha de ${C.rotuloMes(ym).toLowerCase()} pronta · ${plural(lancamentos, 'lançamento', 'lançamentos')}`);
@@ -1573,34 +1603,7 @@ function ligarSugestoes(form) {
   });
 }
 
-function resumoSemanal() {
-  const hoje = C.hojeISO();
-  const [a, m, d] = hoje.split('-').map(Number);
-  const ini = new Date(a, m - 1, d - new Date(a, m - 1, d).getDay());
-  const iso = (x) => `${x.getFullYear()}-${C.pad(x.getMonth() + 1)}-${C.pad(x.getDate())}`;
-  const s0 = iso(ini); const sAnt = iso(new Date(ini.getFullYear(), ini.getMonth(), ini.getDate() - 7));
-  const dia = Math.round((new Date(a, m - 1, d) - ini) / 86400000);
-  const fimAnt = iso(new Date(ini.getFullYear(), ini.getMonth(), ini.getDate() - 7 + dia));
-  const total = (de, ate) => C.vis(D.contas).filter((c) => c.pago && c.pagoEm >= de && c.pagoEm <= ate).reduce((t, c) => t + Number(c.valor) * C.minhaFracao(c), 0)
-    + C.vis(D.compras).filter((p) => p.data >= de && p.data <= ate && !p.recorrenteId).reduce((t, p) => t + Number(p.valor) * C.minhaFracao(p), 0)
-    + (D.divGastos || []).filter((x) => x.data >= de && x.data <= ate).reduce((t, x) => t + x.valor, 0);
-  const agora = total(s0, hoje); const antes = total(sAnt, fimAnt);
-  if (!agora && !antes) return [];
-  const dif = antes ? Math.round(((agora - antes) / antes) * 100) : null;
-  return [{ e: '🗓️', t: `Esta semana: ${fmt(agora)} em gastos${dif !== null ? ` (${dif > 0 ? '▲' : '▼'} ${Math.abs(dif)}% vs mesmo ponto da semana passada)` : ''}`, tipo: dif !== null && dif > 0 ? 'amber' : 'green' }];
-}
 
-function cardPodeGastar() {
-  const p = P.projecao(D, 60, { comissoes: modCom() });
-  const neg = p.min.s < 0;
-  return `<button class="card g pode" data-a="ir" data-id="fluxo" style="margin-bottom:12px">
-    <span class="chev">›</span>
-    <div class="lbl">💸 Pode gastar hoje</div>
-    <div class="val ${p.podeGastar <= 0 ? 'neg' : 'pos'}">${fmt(p.podeGastar)}<span style="font-size:.78rem;color:var(--muted);font-weight:500"> /dia${p.prox ? ` até ${C.dataBR(p.prox.d)}` : ''}</span></div>
-    ${miniGrafico(p.serie)}
-    <div class="sub">${neg ? `⚠️ O saldo previsto fica negativo: ${fmt(p.min.s)} em ${C.dataBR(p.min.d)}` : `Menor saldo previsto: ${fmt(p.min.s)} em ${C.dataBR(p.min.d)}`}</div>
-  </button>`;
-}
 
 function miniGrafico(serie, alto = 46) {
   const vs = serie.map((x) => x.s); const max = Math.max(0, ...vs); const min = Math.min(0, ...vs); const amp = max - min || 1;
@@ -2039,17 +2042,6 @@ function telaDividir() {
   <p class="rodape">Nos seus relatórios conta só a sua parte de cada item. O pagamento do acerto (Pix, dinheiro) é feito fora do app.</p>`;
 }
 
-function cardDividir() {
-  const c = conexao(); if (!c) return '';
-  const saldo = C.saldoDivisao(divItens, usuario.uid); const nome = esc(nomeOutro(c));
-  const novos = novosDiv(Number(localStorage.getItem(vistoKey(c.id))) || 0).length;
-  return `<button class="card g" data-a="ir-dividir" style="margin-top:12px">
-    <span class="chev">›</span>
-    <div class="lbl">🤝 Dividindo com ${nome}${novos ? ` <span class="tag amber">${plural(novos, 'novo', 'novos')}</span>` : ''}</div>
-    <div class="val ${saldo > 0 ? 'pos' : saldo < 0 ? 'neg' : ''}">${saldo ? fmt(Math.abs(saldo)) : 'Tudo acertado'}</div>
-    <div class="sub">${saldo > 0 ? `${nome} te deve` : saldo < 0 ? `Você deve a ${nome}` : 'Nenhum valor em aberto'}</div>
-  </button>`;
-}
 
 // Campos de divisão (usados no item dividido e no bloco "Dividir com" de conta/compra).
 const camposDivisao = (modo = 'metade', parte = null) => `<label>Divisão</label><select name="divisao">
@@ -2290,6 +2282,19 @@ const ACOES = {
   'editar-orcamento': (id) => { const x = D.orcamentos.find((c) => c.id === id); if (x) formOrcamento(x); },
   'editar-meta': (id) => { const x = D.metas.find((c) => c.id === id); if (x) formMeta(x); },
   'ver-fatura': (id) => verFatura(id),
+  'pagar-pendente': (id, el) => {
+    if (el.dataset.tipo === 'fatura') { ACOES.pagar(id, el); return; }
+    const c = D.contas.find((x) => x.id === id); if (!c) return;
+    const antes = { pago: c.pago, pagoEm: c.pagoEm || null, carteiraId: c.carteiraId || null };
+    store.atualizar('contas', c.id, { pago: true, pagoEm: C.hojeISO(), carteiraId: c.carteiraId || carteiraPadrao() });
+    toast(`${c.descricao} paga`, () => store.atualizar('contas', c.id, antes));
+  },
+  saude: () => abrirModal('Saúde financeira', cardSaude()),
+  pendentes: () => {
+    const r = C.resumoMes(D, ym);
+    const l = itensPendentes(r, P.projecao(D, 60, { comissoes: modCom() }), modCom() ? C.resumoComissoes(D, ym) : null);
+    abrirModal('Precisa de você', `<div class="list g">${l.map(linhaPendente).join('')}</div>`);
+  },
   pagar: (id, el) => {
     if (el.dataset.tipo === 'fatura') {
       const [cardId] = id.split('_');

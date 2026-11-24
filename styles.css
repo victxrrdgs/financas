@@ -422,3 +422,44 @@ body.travado #app, body.travado #modal { display: none !important; }
 .div-acoes .btn { padding: 12px 10px; font-size: .88rem; }
 .row.div-novo { background: rgba(251, 191, 36, .07); }
 .cod { font-family: ui-monospace, monospace; letter-spacing: .08em; color: var(--text); }
+
+/* ---------- Início do redesign (itens 01, 03 e 09) ---------- */
+.hero2 { display: block; width: 100%; text-align: left; padding: 28px 8px 0; }
+.h2-lbl { display: block; font-size: 14px; color: var(--muted); }
+.h2-linha { display: flex; align-items: baseline; gap: 6px; margin-top: 8px; }
+.hero2 .hero-val { font-size: 60px; font-weight: 600; letter-spacing: -.045em; line-height: 1; margin: 0; color: var(--text); }
+.hero2 .hero-val.warn { color: var(--amber); }
+.hero2 .hero-val.neg { color: var(--red); }
+.h2-suf { font-size: 15px; color: var(--muted); }
+.h2-sub { display: block; margin-top: 10px; font-size: 14px; color: var(--text-2); }
+.dias { display: grid; gap: 4px; height: 6px; margin-top: 18px; }
+.dias i { background: #2a2d34; border-radius: 3px; }
+.dias i:first-child { background: var(--lime); }
+.dias-leg { display: flex; justify-content: space-between; margin-top: 8px; font: 500 11px "Geist Mono", ui-monospace, monospace; color: var(--faint); letter-spacing: .02em; }
+.duo { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 24px; }
+.mini-card { background: var(--surface); border-radius: var(--r); padding: 14px 16px; }
+.mini-card span { display: block; font-size: 12px; color: var(--muted); }
+.mini-card b { display: block; margin-top: 4px; font-size: 20px; font-weight: 600; letter-spacing: -.02em; }
+.sec-h .cont { font: 500 12px "Geist Mono", ui-monospace, monospace; color: var(--muted); }
+.pend { display: flex; align-items: center; gap: 12px; padding: 12px 14px; min-height: 60px; }
+.pend + .pend { border-top: 1px solid var(--line); }
+.pend .info { flex: 1; min-width: 0; cursor: pointer; }
+.pend .t { font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pend .m { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.pend .m.neg { color: #ff9a9a; }
+.pend .v { font-size: 15px; font-weight: 500; }
+.bol { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--muted); }
+.bol.red { background: var(--red); } .bol.amber { background: var(--amber); }
+.pg { min-height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line-hi); font-size: 14px; font-weight: 600; }
+.pg.primario { background: var(--text); color: var(--bg); border-color: transparent; }
+.pend .seta { color: var(--faint); font-size: 1.2rem; padding: 0 4px; }
+.ver-tudo { display: block; margin: 10px 4px 0; min-height: 44px; }
+.vazio-txt { margin: 0 4px; font-size: 14px; color: var(--muted); }
+.saude-mini { display: flex; align-items: center; gap: 12px; margin-top: 26px; padding: 14px 16px; }
+.saude-mini .lbl { font-size: 13px; color: var(--muted); flex: 1; }
+.saude-mini .barra { width: 90px; height: 6px; margin: 0; }
+.saude-mini .barra > span { display: block; height: 100%; border-radius: 99px; background: var(--green); }
+.saude-mini.s-amarelo .barra > span { background: var(--amber); } .saude-mini.s-vermelho .barra > span { background: var(--red); }
+.saude-mini b { font-size: 13px; font-weight: 600; }
+.saude-mini.s-verde b { color: var(--green); } .saude-mini.s-amarelo b { color: var(--amber); } .saude-mini.s-vermelho b { color: var(--red); }
+.toast-btn { margin-left: 12px; font-weight: 700; color: var(--lime); min-height: 32px; }

@@ -1,5 +1,5 @@
 // Dívidas, simulador de quitação, fluxo de caixa projetado, boletos e importação de extratos.
-import * as C from './calc.js?v=3.0.2';
+import * as C from './calc.js?v=3.1';
 
 export const TAXA_CHEQUE = 8; // % ao mês, padrão quando a conta não tem taxa cadastrada
 const pad = C.pad;
