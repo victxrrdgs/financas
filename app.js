@@ -1,11 +1,11 @@
-import { criarStore, modoLocal, COLECOES } from './store.js?v=3.8';
-import * as C from './calc.js?v=3.8';
-import * as P from './planos.js?v=3.8';
-import * as L from './lock.js?v=3.8';
-import { interpretar, marcar } from './parser.js?v=3.8';
-import { icone } from './icons.js?v=3.8';
+import { criarStore, modoLocal, COLECOES } from './store.js?v=3.9';
+import * as C from './calc.js?v=3.9';
+import * as P from './planos.js?v=3.9';
+import * as L from './lock.js?v=3.9';
+import { interpretar, marcar } from './parser.js?v=3.9';
+import { icone } from './icons.js?v=3.9';
 
-const VERSAO = '3.8';
+const VERSAO = '3.9';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -340,16 +340,44 @@ function telaInicio() {
   ${saudeCompacta()}`;
 }
 
+// ----- Fechamento do mês (item 06): nos primeiros 10 dias, até a pessoa concluir -----
+const mesAFechar = () => {
+  const ant = C.somarMes(C.ymAtual(), -1);
+  return Number(C.hojeISO().slice(8)) <= 10 && !(prefs().fechados || []).includes(ant) ? ant : null;
+};
+
+function abrirFechamento() {
+  const m = mesAFechar(); if (!m) return;
+  const r = C.resumoMes(D, m);
+  const nome = C.nomeMes(m).toLowerCase();
+  const sobra = Math.max(0, r.sobra);
+  const metas = D.metas.filter((x) => Number(x.alvo) > 0 && Number(x.guardado || 0) < Number(x.alvo));
+  const estouros = C.orcamentosMes(D, m).filter((o) => o.pct > 100);
+  const sugerido = (o) => Math.ceil(o.gasto / 50) * 50;
+  abrirModal(`Fechar ${nome}`, `
+    <p class="fech-frase">Em ${nome} entrou <b>${fmt(r.entrou)}</b>, você pagou <b>${fmt(r.pago)}</b> e ${r.sobra >= 0 ? `sobrou <b class="pos">${fmt(r.sobra)}</b>` : `faltou <b class="neg">${fmt(-r.sobra)}</b>`}.</p>
+    ${sobra > 0 && metas.length ? `<div class="sec-h" style="margin:18px 0 8px"><h3>Guardar a sobra numa meta</h3></div>
+      <div class="list g">${metas.map((x) => { const v = Math.min(sobra, C.r2(Number(x.alvo) - Number(x.guardado || 0))); return `<div class="pend"><div class="info"><div class="t">${esc(x.nome)}</div><div class="m">${fmt(x.guardado || 0)} de ${fmt(x.alvo)}</div></div><button class="pg" data-a="fech-guardar" data-id="${x.id}" data-v="${v}">Guardar ${fmt(v)}</button></div>`; }).join('')}</div>` : ''}
+    ${estouros.length ? `<div class="sec-h" style="margin:18px 0 8px"><h3>Orçamentos que estouraram</h3></div>
+      <div class="list g">${estouros.map((o) => `<div class="pend"><div class="info"><div class="t">${esc(o.categoria)}</div><div class="m">gastou ${fmt(o.gasto)} de ${fmt(o.limite)}</div></div><button class="pg" data-a="fech-orc" data-id="${o.id}" data-v="${sugerido(o)}">Ajustar para ${fmt(sugerido(o))}</button></div>`).join('')}</div>` : ''}
+    <button class="btn primary big" style="margin-top:18px" data-a="fech-concluir">Concluir</button>`);
+}
+
 // "Precisa de você": só o que pede ação, na ordem de urgência (máx. 4 na Início).
 function itensPendentes(r, p, rc) {
   const hoje = C.hojeISO();
   const quando = (d) => `${['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][new Date(`${d}T12:00`).getDay()]}, ${C.dataBR(d)}`;
   const l = [];
+  const fm = mesAFechar();
+  if (fm) {
+    const rf = C.resumoMes(D, fm);
+    l.push({ cor: 'muted', t: `Fechar ${C.nomeMes(fm).toLowerCase()}`, s: rf.sobra >= 0 ? `Sobrou ${fmt(rf.sobra)}` : `Faltou ${fmt(-rf.sobra)}`, acao: 'data-a="fechamento"' });
+  }
   C.emAtraso(D).forEach((x) => {
     const d = -C.diasAte(x.data);
     l.push({ cor: 'red', t: x.descricao, s: `Venceu há ${plural(d, 'dia', 'dias')}`, sCls: 'neg', v: x.valor, pagar: x, primario: true });
   });
-  const vistos = new Set(l.map((x) => x.pagar.id));
+  const vistos = new Set(l.filter((x) => x.pagar).map((x) => x.pagar.id));
   [...r.abertos, ...C.pagaveisMes(D, C.somarMes(C.ymAtual(), 1))]
     .filter((x) => !x.pago && !vistos.has(x.id) && C.diasAte(x.data) >= 0 && C.diasAte(x.data) <= 5)
     .sort((a, b) => a.data.localeCompare(b.data))
@@ -1648,7 +1676,7 @@ async function exportarPlanilha() {
   gerandoPlanilha = true;
   toast('Gerando planilha…');
   try {
-    const X = await import('./planilha.js?v=3.8');
+    const X = await import('./planilha.js?v=3.9');
     const { blob, lancamentos } = await X.gerarPlanilha({ D, ym, nomeCarteira: (id) => carteira(id)?.nome || '', usuario: prefs().apelido || (usuario.displayName || '').split(' ')[0] });
     baixar(`financas-${ym}.xlsx`, blob, blob.type);
     toast(`Planilha de ${C.rotuloMes(ym).toLowerCase()} pronta · ${plural(lancamentos, 'lançamento', 'lançamentos')}`);
@@ -2491,6 +2519,20 @@ const ACOES = {
   'editar-meta': (id) => { const x = D.metas.find((c) => c.id === id); if (x) formMeta(x); },
   'ver-fatura': (id) => verFatura(id),
   fechar: () => fecharModal(),
+  fechamento: () => abrirFechamento(),
+  'fech-guardar': (id, el) => {
+    const x = D.metas.find((m) => m.id === id); if (!x) return;
+    const v = Number(el.dataset.v); store.atualizar('metas', id, { guardado: C.r2(Number(x.guardado || 0) + v) });
+    el.disabled = true; el.textContent = 'Guardado'; toast(`${fmt(v)} guardado em ${x.nome}`);
+  },
+  'fech-orc': (id, el) => {
+    store.atualizar('orcamentos', id, { limite: Number(el.dataset.v) });
+    el.disabled = true; el.textContent = 'Ajustado';
+  },
+  'fech-concluir': () => {
+    const m = mesAFechar(); if (m) salvarPrefs({ fechados: [...(prefs().fechados || []), m].slice(-24) });
+    fecharModal(); toast('Mês fechado');
+  },
   'renegociar-fatura': (id) => {
     const [cardId] = id.split('_');
     const card = carteira(cardId); if (card) renegociarFatura(C.faturaDe(D, card, id.slice(cardId.length + 1)));

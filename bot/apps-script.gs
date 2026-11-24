@@ -87,7 +87,7 @@ var AJUDA = '<b>Como lançar</b> (é só escrever):\n' +
   '• <code>débito 30 padaria nubank</code> → pago da conta\n' +
   '• <code>recebi 1800 seguro nubank</code> → entrada\n' +
   '• <code>ontem 40 ifood nubank</code> ou <code>12/11 ...</code> → outra data\n\n' +
-  'Depois é só tocar em <b>Mudar categoria</b> ou <b>Desfazer</b>.\nComandos: /ajuda · /contas';
+  'Depois é só tocar em <b>Mudar categoria</b> ou <b>Desfazer</b>.\n\n<b>Perguntas</b>: <code>quanto gastei com mercado</code> · <code>quanto gastei essa semana</code> · <code>qual a maior despesa do mês</code>\nComandos: /ajuda · /contas';
 
 // ---------------- Interpretação ----------------
 // Manter em sincronia com parser.js do app (mesmas regras de leitura).
@@ -278,6 +278,7 @@ function processar(up) {
     else if (texto === '/ajuda' || texto === '/help') responder(chat, AJUDA);
     else if (comandoConsulta(chat, texto)) { }
     else if (texto === '/contas') responder(chat, listar('carteiras').map(function (c) { return (c.tipo === 'cartao' ? '💳 ' : '🏦 ') + c.nome; }).join('\n') || 'Nenhuma cadastrada.');
+    else if (texto && perguntar(chat, texto)) { }
     else if (texto) lancar(chat, texto);
     else if (up.message && (up.message.photo || (up.message.document && /image|pdf/.test(up.message.document.mime_type || '')))) lerFoto(chat, up.message);
     else if (up.message) responder(chat, '📷 Ainda não consigo ler fotos, áudios ou arquivos. Por enquanto, escreva o gasto em texto, por exemplo:\n<code>5,50 salgado nubank</code>\n\n/ajuda');
@@ -422,16 +423,19 @@ function analisarComprovante(t) {
   }
   if (data && (data > hojeSP(0) || isNaN(new Date(data)))) data = null;
   var tipo = /\bpix\b|transferencia|\bdebito\b/.test(n) ? 'conta' : null;
+  // Linha só de rótulos do papel ("Nome extrato", "Dados do recebedor") não é nome de loja.
+  var ROTULOS = ['nome', 'extrato', 'descricao', 'destino', 'origem', 'para', 'de', 'do', 'da', 'dados', 'recebedor', 'pagador', 'favorecido', 'estabelecimento', 'loja', 'instituicao', 'conta', 'agencia', 'chave', 'tipo', 'identificacao', 'quem', 'recebeu', 'pagou'];
+  var soRotulo = function (s) { var w = norm(s).replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(Boolean); return !w.length || w.every(function (x) { return ROTULOS.indexOf(x) >= 0; }); };
   var loja = null;
-  for (var k = 0; k < linhas.length; k++) {
+  for (var k = 0; k < linhas.length && !loja; k++) {
     var nl = norm(linhas[k]);
     if (/^(para|destino|recebedor|favorecido|estabelecimento|loja|nome do recebedor|nome)\b/.test(nl)) {
       var resto = linhas[k].replace(/^[^:]*:\s*/, '');
-      loja = resto && resto !== linhas[k] ? resto : linhas[k + 1];
-      break;
+      var cand = resto && resto !== linhas[k] ? resto : linhas[k + 1];
+      if (cand && !soRotulo(cand)) loja = cand;
     }
   }
-  if (!loja) loja = linhas.filter(function (l) { return /[a-zà-ú]{3}/i.test(l) && !/comprovante|transa|pagamento|banco|data|hora|valor|r\$|cnpj|cpf|via|autoriza|aprovad|cart[aã]o|parcela|total/i.test(l); })[0] || null;
+  if (!loja) loja = linhas.filter(function (l) { return /[a-zà-ú]{3}/i.test(l) && !soRotulo(l) && !/comprovante|transa|pagamento|banco|data|hora|valor|r\$|cnpj|cpf|via|autoriza|aprovad|cart[aã]o|parcela|total/i.test(l); })[0] || null;
   if (loja) loja = loja.replace(/[\d*#.\-\/]{4,}/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40);
   var banco = /nubank|nu pagamentos/.test(n) ? 'nubank' : /itau/.test(n) ? 'itau' : /\binter\b/.test(n) ? 'inter' : /mercado ?pago/.test(n) ? 'mp' : /riachuelo|midway/.test(n) ? 'riachuelo' : null;
   return { valor: valor, data: data, tipo: tipo, loja: loja, banco: banco };
@@ -974,6 +978,16 @@ function textoAvisos(auto) {
   return t;
 }
 
+// Fechamento do mês anterior (dia 1): resultado em uma frase; no app dá para guardar a sobra numa meta.
+function textoFechamento() {
+  var D = carregarD();
+  var m = CALC.somarMes(CALC.ymAtual(), -1);
+  var r = CALC.resumoMes(D, m);
+  var nome = MESES_LONGOS[Number(m.slice(5)) - 1].replace('marco', 'março');
+  return '📒 <b>Fechamento de ' + nome + '</b>\nEntrou ' + brl(r.entrou) + ', você pagou ' + brl(r.pago) + ' e ' +
+    (r.sobra >= 0 ? '<b>sobrou ' + brl(r.sobra) + '</b>. Abra o app para guardar numa meta.' : '<b>faltou ' + brl(-r.sobra) + '</b>. Veja no app o que pesou mais.');
+}
+
 // Botões do aviso: até 3 pendências acionáveis, depois "Ver tudo".
 function botoesAvisos() {
   var curto = function (s) { s = String(s || ''); return s.length > 18 ? s.slice(0, 17) + '…' : s; };
@@ -1008,7 +1022,7 @@ function avisoDiario() {
   var m = chatsVinculados();
   Object.keys(m).forEach(function (c) { alvos.push([c, m[c].uid]); });
   alvos.forEach(function (a) {
-    try { UID = a[1]; var t = textoAvisos(true); if (t) responder(a[0], t, botoesAvisos()); if (new Date().getDay() === 0) responder(a[0], resumoSemanal()); }
+    try { UID = a[1]; var t = textoAvisos(true); if (t) responder(a[0], t, botoesAvisos()); if (new Date().getDate() === 1) responder(a[0], textoFechamento(), [[{ text: 'Fechar o mês no app', url: 'https://victxrrdgs.github.io/financas/' }]]); if (new Date().getDay() === 0) responder(a[0], resumoSemanal()); }
     catch (e) { console.log('aviso falhou p/ chat ' + a[0] + ': ' + e.message); }
   });
   UID = UID_DONO;
@@ -1071,6 +1085,53 @@ function gastosPeriodo(D, ini, fim) {
   D.compras.forEach(function (c) { if (!c.excluida && c.data && c.data >= ini && c.data <= fim) add(c.categoria, c.valor); });
   return { tot: Math.round(tot * 100) / 100, n: n, cats: Object.keys(cats).map(function (k) { return [k, cats[k]]; }).filter(function (x) { return x[1] > 0; }).sort(function (a, b) { return b[1] - a[1]; }) };
 }
+// Perguntas simples, sem IA (regex + tabela de categorias). Devolve true se respondeu.
+var MESES_LONGOS = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+function perguntar(chat, texto) {
+  var t = norm(texto).replace(/[?!.]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!/^(quanto|qual|quais)\b/.test(t) || /\d/.test(t.replace(/\b(19|20)\d\d\b/, ''))) return false;
+  var D = carregarD();
+  var hoje = hojeSP(0);
+  // Período: "essa/esta semana", "em <mês>", "mês passado"; padrão = mês atual.
+  var ini = hoje.slice(0, 8) + '01', fim = hoje, rotulo = 'neste mês';
+  var mm = t.match(/\b(?:em|de|no mes de)\s+(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/);
+  if (/\b(essa|esta|nessa|nesta) semana\b/.test(t)) { ini = hojeSP(-6); rotulo = 'nos últimos 7 dias'; }
+  else if (/\bmes passado\b/.test(t)) {
+    var ymp = CALC.somarMes(CALC.ymAtual(), -1); ini = ymp + '-01'; fim = ymp + '-31'; rotulo = 'no mês passado';
+  } else if (mm) {
+    var mi = MESES_LONGOS.indexOf(mm[1]) + 1; var ano = Number(hoje.slice(0, 4)) - (mi > Number(hoje.slice(5, 7)) ? 1 : 0);
+    ini = ano + '-' + pad(mi) + '-01'; fim = ano + '-' + pad(mi) + '-31'; rotulo = 'em ' + mm[1].replace('marco', 'março');
+  }
+  var botao = [[{ text: 'Ver no app', url: 'https://victxrrdgs.github.io/financas/' }]];
+  if (/\bmaior (despesa|gasto|compra)\b/.test(t)) {
+    var itens = [];
+    D.contas.forEach(function (c) { if (!c.excluida && c.pago && c.pagoEm >= ini && c.pagoEm <= fim) itens.push(c); });
+    D.compras.forEach(function (c) { if (!c.excluida && c.data >= ini && c.data <= fim) itens.push(c); });
+    itens.sort(function (a, b) { return Number(b.valor) - Number(a.valor); });
+    if (!itens.length) { responder(chat, 'Nenhum gasto ' + rotulo + '.'); return true; }
+    responder(chat, '🔝 Maior gasto ' + rotulo + ': <b>' + esc(itens[0].descricao) + '</b> · ' + brl(itens[0].valor) +
+      (itens[1] ? '\nDepois: ' + itens.slice(1, 3).map(function (x) { return esc(x.descricao) + ' (' + brl(x.valor) + ')'; }).join(', ') : ''), botao);
+    return true;
+  }
+  if (!/\bgastei\b/.test(t)) return false;
+  var g = gastosPeriodo(D, ini, fim);
+  var cm = t.match(/\b(?:com|em|no|na)\s+([a-z/ ]+?)(?:\s+(?:em|de|no mes|nessa|nesta|essa|esta|mes)\b|$)/);
+  var cat = null;
+  if (cm) {
+    var q = cm[1].trim();
+    var porCategoria = CATS.filter(function (c) { return norm(c).indexOf(q) >= 0 || q.indexOf(norm(c)) >= 0; })[0];
+    var porRegra = REGRAS.filter(function (r) { return r[0].test(q); })[0];
+    cat = porCategoria || (porRegra && porRegra[1]) || null;
+  }
+  if (cat) {
+    var v = (g.cats.filter(function (c) { return c[0] === cat; })[0] || [cat, 0])[1];
+    responder(chat, '🏷️ ' + esc(cat) + ' ' + rotulo + ': <b>' + brl(v) + '</b>' + (g.tot > 0 ? ' (' + Math.round(v / g.tot * 100) + '% dos gastos)' : ''), botao);
+  } else {
+    responder(chat, '💸 Você gastou <b>' + brl(g.tot) + '</b> ' + rotulo + '.' + (g.cats.length ? '\n' + g.cats.slice(0, 3).map(function (c) { return '• ' + esc(c[0]) + ' · ' + brl(c[1]); }).join('\n') : ''), botao);
+  }
+  return true;
+}
+
 function resumoSemanal() {
   var D = carregarD();
   var ini = hojeSP(-6), fim = hojeSP(0);
