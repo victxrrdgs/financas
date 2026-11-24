@@ -1,10 +1,11 @@
-import { criarStore, modoLocal, COLECOES } from './store.js?v=3.7';
-import * as C from './calc.js?v=3.7';
-import * as P from './planos.js?v=3.7';
-import * as L from './lock.js?v=3.7';
-import { interpretar, marcar } from './parser.js?v=3.7';
+import { criarStore, modoLocal, COLECOES } from './store.js?v=3.8';
+import * as C from './calc.js?v=3.8';
+import * as P from './planos.js?v=3.8';
+import * as L from './lock.js?v=3.8';
+import { interpretar, marcar } from './parser.js?v=3.8';
+import { icone } from './icons.js?v=3.8';
 
-const VERSAO = '3.7';
+const VERSAO = '3.8';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -197,7 +198,7 @@ function linhaPagavel(x) {
   const ci = fat ? { e: '💳', c: x.card.cor || '#8b5cf6' } : C.catInfo(x.categoria);
   const cart = !fat && x.carteiraId ? carteira(x.carteiraId) : null;
   return `<div class="row">
-    <div class="ic" style="--c:${ci.c}">${ci.e}</div>
+    <div class="ic" style="--c:${ci.c}">${icone(ci.e)}</div>
     <div class="info" data-a="${fat ? 'ver-fatura' : 'editar-conta'}" data-id="${fat ? x.card.id : x.id}">
       <div class="t">${esc(x.descricao)}</div>
       <div class="m">${C.dataBR(x.data)}${fat ? ` · ${plural(x.itens.length, 'compra', 'compras')}${x.saldoAnterior > 0 ? ' · inclui atraso' : ''}${x.rolada ? ' · somada à próxima fatura' : ''}` : ''}${x.recorrenteId ? ' · 🔁' : ''}${x.parteOutro > 0 ? ' · 🤝' : ''}${cart ? ' · ' + esc(cart.nome) : ''} ${tagVenc(x)}</div>
@@ -685,7 +686,7 @@ function telaPlanejar() {
       const ci = C.catInfo(o.categoria);
       const cls = o.pct >= 100 ? 'red' : o.pct >= 80 ? 'amber' : '';
       return `<div class="row" data-a="editar-orcamento" data-id="${o.id}" style="cursor:pointer;flex-wrap:wrap">
-        <div class="ic" style="--c:${ci.c}">${ci.e}</div>
+        <div class="ic" style="--c:${ci.c}">${icone(ci.e)}</div>
         <div class="info"><div class="t">${esc(o.categoria)}</div><div class="m">${fmt(o.gasto)} de ${fmt(o.limite)}</div></div>
         <div class="v ${cls === 'red' ? 'neg' : cls === 'amber' ? 'warn' : ''}">${o.pct}%</div>
         <div class="barra ${cls}" style="width:100%;margin-top:4px"><div style="width:${Math.min(100, o.pct)}%"></div></div>
@@ -765,7 +766,7 @@ function telaRelatorios() {
     const ci = C.catInfo(k);
     const delta = d === null ? '<span class="delta" style="color:var(--faint)">novo</span>'
       : `<span class="delta ${d > 0 ? 'neg' : d < 0 ? 'pos' : ''}">${d > 0 ? '▲' : d < 0 ? '▼' : '='} ${Math.abs(d)}%</span>`;
-    return `<div class="row"><div class="ic" style="--c:${ci.c}">${ci.e}</div>
+    return `<div class="row"><div class="ic" style="--c:${ci.c}">${icone(ci.e)}</div>
       <div class="info"><div class="t">${esc(k)}</div><div class="m">antes ${fmt(b)}</div></div>
       <div style="text-align:right"><div class="v">${fmt(a)}</div>${delta}</div></div>`;
   }).join('') : '<div class="sub">Sem dados para comparar.</div>';
@@ -1106,7 +1107,7 @@ function verFatura(cardId) {
     <div class="sec" style="margin-top:16px">
       ${f.itens.length ? `<div class="list g">${f.itens.map((p) => {
         const ci = C.catInfo(p.compra.categoria);
-        return `<div class="row"><div class="ic" style="--c:${ci.c}">${ci.e}</div>
+        return `<div class="row"><div class="ic" style="--c:${ci.c}">${icone(ci.e)}</div>
           <div class="info" data-a="editar-compra" data-id="${p.compra.id}"><div class="t">${esc(p.compra.descricao)}</div>
           <div class="m">${C.dataBR(p.compra.data)}${p.n > 1 ? ` · parcela ${p.i}/${p.n}` : ''}${p.compra.recorrenteId ? ' · 🔁 assinatura' : ''}</div></div>
           <div class="v">${fmt(p.valor)}</div></div>`;
@@ -1345,7 +1346,7 @@ function gerenciarRecorrencias() {
   const h = C.ymAtual();
   const ativas = D.recorrentes.filter((r) => !r.fim || r.fim >= h);
   abrirModal('Recorrências', ativas.length ? `<div class="list g">${ativas.map((r) => `<div class="row">
-      <div class="ic" style="--c:${r.tipo === 'entrada' ? '#4ade80' : C.catInfo(r.categoria).c}">${r.tipo === 'entrada' ? '💰' : C.catInfo(r.categoria).e}</div>
+      <div class="ic" style="--c:${r.tipo === 'entrada' ? '#4ade80' : C.catInfo(r.categoria).c}">${icone(r.tipo === 'entrada' ? '💰' : C.catInfo(r.categoria).e)}</div>
       <div class="info"><div class="t">${esc(r.descricao)}</div><div class="m">Todo dia ${r.dia}${r.tipo === 'compra' ? ` · 💳 ${esc(carteira(r.carteiraId)?.nome || 'cartão removido')}` : ''}${r.fim ? ' · até ' + C.rotuloMes(r.fim).toLowerCase() : ''}</div></div>
       <div class="v ${r.tipo === 'entrada' ? 'pos' : ''}">${fmt(r.valor)}</div>
       ${r.fim ? '' : `<button class="btn danger" style="flex:0;padding:8px 12px;font-size:.8rem" data-encerrar="${r.id}">Encerrar</button>`}
@@ -1647,7 +1648,7 @@ async function exportarPlanilha() {
   gerandoPlanilha = true;
   toast('Gerando planilha…');
   try {
-    const X = await import('./planilha.js?v=3.7');
+    const X = await import('./planilha.js?v=3.8');
     const { blob, lancamentos } = await X.gerarPlanilha({ D, ym, nomeCarteira: (id) => carteira(id)?.nome || '', usuario: prefs().apelido || (usuario.displayName || '').split(' ')[0] });
     baixar(`financas-${ym}.xlsx`, blob, blob.type);
     toast(`Planilha de ${C.rotuloMes(ym).toLowerCase()} pronta · ${plural(lancamentos, 'lançamento', 'lançamentos')}`);
@@ -2193,7 +2194,7 @@ function linhaDiv(x, c, ativa) {
   const novo = !x.pago && x.criadoPor !== eu && (x.criadoEm || 0) > divVistoAntes;
   const como = Number(x.parte) >= Number(x.valor) ? `tudo é ${euPaguei ? 'de ' + nome : 'seu'}` : x.divisao === 'metade' ? 'metade' : `parte ${euPaguei ? 'de ' + nome : 'sua'} ${fmt(x.parte)}`;
   return `<div class="row ${novo ? 'div-novo' : ''}">
-    <div class="ic" style="--c:${ci.c}">${ci.e}</div>
+    <div class="ic" style="--c:${ci.c}">${icone(ci.e)}</div>
     <div class="info" data-a="div-item" data-id="${x.id}">
       <div class="t">${esc(x.descricao)}${novo ? ' <span class="tag amber">novo</span>' : ''}</div>
       <div class="m">${C.dataBR(x.data)} · ${euPaguei ? 'você' : nome} pagou ${fmt(x.valor)}, ${como} · lançado por ${x.criadoPor === eu ? 'você' : nome}${x.pago ? ` <span class="tag green">Acertado ${C.dataBR(x.pagoEm)}</span>` : ''}</div>
