@@ -856,7 +856,7 @@ function projecao(D, dias = 60, opts = {}) {
   const ateLimite = saldo0 + ev.filter((e) => e.d < limite).reduce((t, e) => t + e.v, 0);
   return { saldo0, ev, serie, min, prox, janela, podeGastar: Math.max(0, r2(ateLimite / janela)), saldoAntesDaEntrada: r2(ateLimite) };
 }
-return {configurar: configurar, ymAtual: ymAtual, contasBancarias: contasBancarias, cartoes: cartoes, saldoCarteira: saldoCarteira, saldoTotal: saldoTotal, faturaDe: faturaDe, somarMes: somarMes, diasAte: diasAte, dataBR: dataBR, resumoMes: resumoMes, orcamentosMes: orcamentosMes, projecao: projecao, mesDe: mesDe};
+return {configurar: configurar, dataNoPeriodo: dataNoPeriodo, ymAtual: ymAtual, contasBancarias: contasBancarias, cartoes: cartoes, saldoCarteira: saldoCarteira, saldoTotal: saldoTotal, faturaDe: faturaDe, somarMes: somarMes, diasAte: diasAte, dataBR: dataBR, resumoMes: resumoMes, orcamentosMes: orcamentosMes, projecao: projecao, mesDe: mesDe};
 })();
 
 // ================= Consultas e avisos (v2) =================
@@ -978,6 +978,32 @@ function textoAvisos(auto) {
   return t;
 }
 
+// Cria os lançamentos das recorrências do mês (aluguel, financiamento, salário, assinaturas), como o app faz em
+// gerarRecorrentes(), para o aviso das 8h vê-los mesmo se o app ainda não foi aberto no mês.
+// Mesmo id do app (`<recorrência>_<mês>`): se os dois criarem, é o mesmo documento. Manter em sincronia com app.js.
+function gerarRecorrentesBot() {
+  var D = carregarD();
+  var atual = CALC.ymAtual();
+  var meses = [atual]; // só o mês atual: o anterior o app já cria ao abrir, e criar agora poderia cair numa fatura fechada
+  var entre = function (a, b) { return (Number(b.slice(0, 4)) - Number(a.slice(0, 4))) * 12 + Number(b.slice(5, 7)) - Number(a.slice(5, 7)); };
+  var criados = 0;
+  meses.forEach(function (mes) {
+    D.recorrentes.forEach(function (r) {
+      if (!r.inicio || r.inicio > mes || (r.fim && mes > r.fim)) return;      if (r.tipo === 'compra' && !D.carteiras.some(function (c) { return c.id === r.carteiraId; })) return;
+      var col = r.tipo === 'entrada' ? 'entradas' : r.tipo === 'compra' ? 'compras' : 'contas';
+      var id = r.id + '_' + mes;
+      if (D[col].some(function (x) { return x.id === id; })) return;
+      var desc = r.financiamento ? r.descricao + ' · parcela ' + ((Number(r.parcelaInicial) || 1) + entre(r.inicio, mes)) + '/' + r.totalParcelas : r.descricao;
+      var doc = { descricao: desc, valor: Number(r.valor), data: CALC.dataNoPeriodo(mes, r.dia), recorrenteId: r.id, carteiraId: r.carteiraId || null };
+      if (col === 'contas') { doc.categoria = r.categoria || 'Outros'; doc.pago = false; doc.pagoEm = null; }
+      if (col === 'compras') { doc.categoria = r.categoria || 'Assinaturas'; doc.parcelas = 1; }
+      fsReq('patch', col + '/' + id, paraFS(doc));
+      criados++;
+    });
+  });
+  return criados;
+}
+
 // Fechamento do mês anterior (dia 1): resultado em uma frase; no app dá para guardar a sobra numa meta.
 function textoFechamento() {
   var D = carregarD();
@@ -1022,7 +1048,7 @@ function avisoDiario() {
   var m = chatsVinculados();
   Object.keys(m).forEach(function (c) { alvos.push([c, m[c].uid]); });
   alvos.forEach(function (a) {
-    try { UID = a[1]; var t = textoAvisos(true); if (t) responder(a[0], t, botoesAvisos()); if (new Date().getDate() === 1) responder(a[0], textoFechamento(), [[{ text: 'Fechar o mês no app', url: 'https://victxrrdgs.github.io/financas/' }]]); if (new Date().getDay() === 0) responder(a[0], resumoSemanal()); }
+    try { UID = a[1]; try { gerarRecorrentesBot(); } catch (e) { console.log('recorrentes falhou: ' + e.message); } var t = textoAvisos(true); if (t) responder(a[0], t, botoesAvisos()); if (new Date().getDate() === 1) responder(a[0], textoFechamento(), [[{ text: 'Fechar o mês no app', url: 'https://victxrrdgs.github.io/financas/' }]]); if (new Date().getDay() === 0) responder(a[0], resumoSemanal()); }
     catch (e) { console.log('aviso falhou p/ chat ' + a[0] + ': ' + e.message); }
   });
   UID = UID_DONO;

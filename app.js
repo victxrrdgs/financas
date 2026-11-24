@@ -1,11 +1,11 @@
-import { criarStore, modoLocal, COLECOES } from './store.js?v=3.9.1';
-import * as C from './calc.js?v=3.9.1';
-import * as P from './planos.js?v=3.9.1';
-import * as L from './lock.js?v=3.9.1';
-import { interpretar, marcar } from './parser.js?v=3.9.1';
-import { icone } from './icons.js?v=3.9.1';
+import { criarStore, modoLocal, COLECOES } from './store.js?v=3.9.2';
+import * as C from './calc.js?v=3.9.2';
+import * as P from './planos.js?v=3.9.2';
+import * as L from './lock.js?v=3.9.2';
+import { interpretar, marcar } from './parser.js?v=3.9.2';
+import { icone } from './icons.js?v=3.9.2';
 
-const VERSAO = '3.9.1';
+const VERSAO = '3.9.2';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -124,6 +124,7 @@ function agendarRender() {
 }
 
 // Cria os lançamentos das recorrências para o mês aberto e o atual.
+// O bot faz o mesmo para o mês atual (gerarRecorrentesBot, mesmo id): manter as duas regras em sincronia.
 // Só roda com dados confirmados pelo servidor, para não duplicar nem sobrescrever.
 function gerarRecorrentes() {
   if (apagando || !srv.contas || !srv.entradas || !srv.recorrentes || !srv.config || !srv.compras) return;
@@ -323,11 +324,16 @@ function telaInicio() {
     ? `Até ${esc(p.prox.t.toLowerCase())}, ${diaSemana(p.prox.d)} ${C.dataBR(p.prox.d)} · ${plural(nDias, 'dia', 'dias')}`
     : 'Nos próximos 30 dias';
 
+  // Saldo previsto negativo antes da próxima entrada: "R$ 0,00/dia" esconderia o tamanho do buraco.
+  const falta = p.podeGastar <= 0 && p.min.s < 0 && (!p.prox || p.min.d <= p.prox.d);
   return `
   <button class="hero2" data-a="ir" data-id="fluxo">
-    <span class="h2-lbl">Pode gastar hoje</span>
+    ${falta ? `<span class="h2-lbl">Falta dinheiro${p.prox ? ` até ${esc(p.prox.t.toLowerCase())}` : ''}</span>
+    <span class="h2-linha"><span class="hero-val neg" data-count="${-p.min.s}">${fmt(-p.min.s)}</span></span>
+    <span class="h2-sub">O saldo chega a ${fmt(p.min.s)} em ${diaSemana(p.min.d)} ${C.dataBR(p.min.d)}. Antecipe uma entrada, adie uma conta ou corte gastos até lá.</span>`
+    : `<span class="h2-lbl">Pode gastar hoje</span>
     <span class="h2-linha"><span class="hero-val ${corHero}" data-count="${p.podeGastar}">${fmt(p.podeGastar)}</span><span class="h2-suf">/dia</span></span>
-    <span class="h2-sub">${ateQuando}</span>
+    <span class="h2-sub">${ateQuando}</span>`}
     <span class="dias" style="grid-template-columns:repeat(${nDias},1fr)" aria-hidden="true">${'<i></i>'.repeat(nDias)}</span>
     <span class="dias-leg"><span>HOJE ${Number(hoje.slice(8))}</span><span>${p.prox ? `${esc(p.prox.t.toUpperCase())} ${C.dataBR(p.prox.d)}` : '+30 DIAS'}</span></span>
   </button>
@@ -370,9 +376,11 @@ function telaOutroMes() {
 }
 
 // ----- Fechamento do mês (item 06): nos primeiros 10 dias, até a pessoa concluir -----
+// Conta os 10 dias a partir do início do mês financeiro (que pode começar antes do dia 1, ver C.diaInicio).
 const mesAFechar = () => {
   const ant = C.somarMes(C.ymAtual(), -1);
-  return Number(C.hojeISO().slice(8)) <= 10 && !(prefs().fechados || []).includes(ant) ? ant : null;
+  const dias = -C.diasAte(C.periodo(C.ymAtual())[0]);
+  return dias >= 0 && dias < 10 && !(prefs().fechados || []).includes(ant) ? ant : null;
 };
 
 function abrirFechamento() {
@@ -423,7 +431,8 @@ function itensPendentes(r, p, rc) {
   C.orcamentosMes(D, ym).filter((o) => o.pct >= 90).forEach((o) => {
     l.push({ cor: o.pct >= 100 ? 'red' : 'amber', t: `Orçamento de ${o.categoria}`, s: `${o.pct}% usado`, v: o.gasto, acao: 'data-a="ir" data-id="planejar"' });
   });
-  if (p.min.s < 0) l.push({ cor: 'red', t: 'Saldo previsto negativo', s: `Chega a ${fmt(p.min.s)} em ${C.dataBR(p.min.d)}`, acao: 'data-a="ir" data-id="fluxo"' });
+  // Quando o destaque já mostra "Falta dinheiro", o item repetido sai da lista.
+  if (p.min.s < 0 && !(p.podeGastar <= 0 && (!p.prox || p.min.d <= p.prox.d))) l.push({ cor: 'red', t: 'Saldo previsto negativo', s: `Chega a ${fmt(p.min.s)} em ${C.dataBR(p.min.d)}`, acao: 'data-a="ir" data-id="fluxo"' });
   // Módulos ativos entram só quando têm algo a dizer (item 09).
   if (rc && rc.previstoMes > 0) {
     const prox = [...rc.pendentes].sort((a, b) => a.data.localeCompare(b.data))[0];
@@ -1705,7 +1714,7 @@ async function exportarPlanilha() {
   gerandoPlanilha = true;
   toast('Gerando planilha…');
   try {
-    const X = await import('./planilha.js?v=3.9.1');
+    const X = await import('./planilha.js?v=3.9.2');
     const { blob, lancamentos } = await X.gerarPlanilha({ D, ym, nomeCarteira: (id) => carteira(id)?.nome || '', usuario: prefs().apelido || (usuario.displayName || '').split(' ')[0] });
     baixar(`financas-${ym}.xlsx`, blob, blob.type);
     toast(`Planilha de ${C.rotuloMes(ym).toLowerCase()} pronta · ${plural(lancamentos, 'lançamento', 'lançamentos')}`);
