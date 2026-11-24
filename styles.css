@@ -231,7 +231,10 @@ button.card:active { transform: scale(.985); }
   border-radius: 26px; padding: 8px 6px; background: var(--surface-2); border: 1px solid var(--line);
 }
 .dock button[data-tela] { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: .66rem; color: var(--faint); padding: 4px 0; transition: color .2s; }
+.dock button[data-tela] { position: relative; }
 .dock button[data-tela].active { color: var(--text); }
+/* Aba ativa do redesign (item 05): ponto lima de 6px acima do ícone. */
+.dock button[data-tela].active::before { content: ''; position: absolute; top: -6px; left: 50%; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; background: var(--lime); }
 .dock button[data-tela] svg { width: 23px; height: 23px; }
 .fab {
   position: fixed; z-index: 26; right: max(20px, calc(50% - 230px)); bottom: calc(var(--sb) + 104px);
