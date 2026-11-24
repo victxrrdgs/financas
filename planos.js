@@ -1,5 +1,5 @@
 // Dívidas, simulador de quitação, fluxo de caixa projetado, boletos e importação de extratos.
-import * as C from './calc.js?v=3.3.2';
+import * as C from './calc.js?v=3.3.3';
 
 export const TAXA_CHEQUE = 8; // % ao mês, padrão quando a conta não tem taxa cadastrada
 const pad = C.pad;
@@ -41,10 +41,8 @@ export function listaDividas(D) {
       if (fut.length) out.push({ id: 'cp_' + cp.id, nome: cp.descricao, tipo: `Parcelado no ${card.nome}`, saldo: C.soma(fut), taxa: 0, parcela: fut[0].valor, restantes: fut.length });
     });
   });
-  D.recorrentes.filter((r) => r.financiamento).forEach((r) => {
-    const i = infoFinanciamento(D, r);
-    if (i.restantes > 0) out.push({ id: 'fin_' + r.id, nome: r.descricao, tipo: 'Financiamento', saldo: i.saldo, taxa: 0, parcela: Number(r.valor), restantes: i.restantes, juros: Number(r.juros) || 0 });
-  });
+  // Financiamentos (veículo, seguro no boleto, crediário) não entram: são parcelas mensais planejadas,
+  // pagas como contas do mês. Eles ficam na seção "Financiamentos", só para acompanhar o andamento.
   return out;
 }
 

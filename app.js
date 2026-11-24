@@ -1,10 +1,10 @@
-import { criarStore, modoLocal, COLECOES } from './store.js?v=3.3.2';
-import * as C from './calc.js?v=3.3.2';
-import * as P from './planos.js?v=3.3.2';
-import * as L from './lock.js?v=3.3.2';
-import { interpretar, marcar } from './parser.js?v=3.3.2';
+import { criarStore, modoLocal, COLECOES } from './store.js?v=3.3.3';
+import * as C from './calc.js?v=3.3.3';
+import * as P from './planos.js?v=3.3.3';
+import * as L from './lock.js?v=3.3.3';
+import { interpretar, marcar } from './parser.js?v=3.3.3';
 
-const VERSAO = '3.3.2';
+const VERSAO = '3.3.3';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -1630,7 +1630,7 @@ async function exportarPlanilha() {
   gerandoPlanilha = true;
   toast('Gerando planilha…');
   try {
-    const X = await import('./planilha.js?v=3.3.2');
+    const X = await import('./planilha.js?v=3.3.3');
     const { blob, lancamentos } = await X.gerarPlanilha({ D, ym, nomeCarteira: (id) => carteira(id)?.nome || '', usuario: prefs().apelido || (usuario.displayName || '').split(' ')[0] });
     baixar(`financas-${ym}.xlsx`, blob, blob.type);
     toast(`Planilha de ${C.rotuloMes(ym).toLowerCase()} pronta · ${plural(lancamentos, 'lançamento', 'lançamentos')}`);
@@ -1814,8 +1814,8 @@ function telaDividas() {
     ${fins.length ? fins.map((r) => { const i = P.infoFinanciamento(D, r); return `<button class="meta g" data-a="editar-financiamento" data-id="${r.id}">
       ${anel(i.pct, '#60a5fa', '🏠')}
       <div class="info"><div class="t">${esc(r.descricao)}</div>
-      <div class="v">${fmt(i.saldo)} <span style="color:var(--faint);font-weight:500">restante</span></div>
-      <div class="m">${i.pagas} de ${i.total} pagas · ${fmt(r.valor)}/mês · termina em ${C.rotuloMes(r.fim).toLowerCase()}</div></div></button>`; }).join('')
+      <div class="v">${fmt(r.valor)} <span style="color:var(--faint);font-weight:500">por mês</span></div>
+      <div class="m">${i.pagas} de ${i.total} pagas · termina em ${C.rotuloMes(r.fim).toLowerCase()} · faltam ${fmt(i.saldo)}</div></div></button>`; }).join('')
       : '<div class="vazio g">Cadastre financiamentos (carro, casa, crediário) para acompanhar o saldo devedor e quando termina.</div>'}
   </div>`;
 }
