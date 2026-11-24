@@ -1,10 +1,10 @@
-import { criarStore, modoLocal, COLECOES } from './store.js?v=3.2';
-import * as C from './calc.js?v=3.2';
-import * as P from './planos.js?v=3.2';
-import * as L from './lock.js?v=3.2';
-import { interpretar, marcar } from './parser.js?v=3.2';
+import { criarStore, modoLocal, COLECOES } from './store.js?v=3.3';
+import * as C from './calc.js?v=3.3';
+import * as P from './planos.js?v=3.3';
+import * as L from './lock.js?v=3.3';
+import { interpretar, marcar } from './parser.js?v=3.3';
 
-const VERSAO = '3.2';
+const VERSAO = '3.3';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -1098,6 +1098,7 @@ function verFatura(cardId) {
     ${f.valor > 0 || f.pago ? `<form id="f">
       ${f.pago ? '' : C.contasBancarias(D).length ? `<label>Pagar com</label><select name="carteiraId">${optsCarteiras(carteiraPadrao())}</select>` : ''}
       <button type="button" class="btn big" data-a="conferir-fatura" data-id="${f.id}">🔍 Conferir com o valor do banco</button>
+      ${f.pago ? '' : `<button type="button" class="btn big" data-a="renegociar-fatura" data-id="${f.id}">Renegociei esta fatura</button>`}
       <div class="acoes"><button type="button" class="btn" data-a="nova-compra" data-id="${card.id}">+ Compra</button>
       <button class="btn ${f.pago ? '' : 'primary'}">${f.pago ? 'Desfazer pagamento' : 'Pagar fatura'}</button></div>
     </form>` : `<div class="acoes"><button type="button" class="btn primary" data-a="nova-compra" data-id="${card.id}">+ Compra</button></div>`}`);
@@ -1107,6 +1108,43 @@ function verFatura(cardId) {
     const cid = new FormData(form).get('carteiraId') || null;
     pagarFatura(f, cid);
     fecharModal();
+  });
+}
+
+// Fatura renegociada com o banco: ela (e o atraso que já estava dentro dela) é quitada sem sair dinheiro de conta,
+// e o acordo vira uma compra parcelada no mesmo cartão. O nome "Refinanciamento" faz o acordo aparecer em Dívidas.
+function renegociarFatura(f) {
+  const card = f.card;
+  const prox = C.somarMes(f.ym, 1);
+  abrirModal(`Renegociar fatura de ${C.nomeMes(f.ym).toLowerCase()}`, `<form id="f">
+    <p class="sub" style="margin-top:0">A fatura de ${fmt(f.valor)} sai de "a pagar" sem descontar de nenhuma conta, e as parcelas do acordo entram nas próximas faturas do ${esc(card.nome)}.</p>
+    <div class="linha">
+      <div><label>Parcelas</label><input name="n" type="number" min="1" max="48" required value="6" inputmode="numeric"></div>
+      <div><label>Valor da parcela</label><input name="parcela" required inputmode="decimal" placeholder="R$ 0,00"></div>
+    </div>
+    <label>Primeira parcela na fatura de</label><input name="ym" type="month" required value="${prox}">
+    <label>Descrição</label><input name="descricao" required maxlength="80" value="Refinanciamento da fatura de ${C.nomeMes(f.ym).toLowerCase()}">
+    <div class="acoes"><button type="button" class="btn" data-a="fechar">Cancelar</button><button class="btn primary">Salvar acordo</button></div>
+  </form>`);
+  $('#f').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const g = new FormData(ev.target);
+    const n = Number(g.get('n')); const parcela = C.parseValor(g.get('parcela')); const ym1 = g.get('ym');
+    if (!(n >= 1) || !(parcela > 0)) { toast('Informe as parcelas e o valor'); return; }
+    // Data da compra que faz a 1ª parcela cair na fatura escolhida (pela regra de fechamento do cartão).
+    const base = new Date(`${C.hojeISO()}T12:00`);
+    let data = null;
+    for (let k = -45; k <= 75 && !data; k++) {
+      const d = new Date(base); d.setDate(d.getDate() + k);
+      const iso = `${d.getFullYear()}-${C.pad(d.getMonth() + 1)}-${C.pad(d.getDate())}`;
+      if (C.parcelasDe({ data: iso, valor: parcela * n, parcelas: n }, card)[0]?.ym === ym1) data = iso;
+    }
+    if (!data) { toast('Não consegui encaixar a 1ª parcela nessa fatura'); return; }
+    store.definir('faturas', f.id, { pago: true, pagoEm: C.hojeISO(), carteiraId: null, valor: 0, renegociada: true });
+    (f.anteriores || []).forEach((id) => store.definir('faturas', id, { pago: true, pagoEm: C.hojeISO(), carteiraId: null, valor: 0, quitadaPor: f.id }));
+    store.adicionar('compras', { carteiraId: card.id, descricao: g.get('descricao').trim(), valor: C.r2(parcela * n), parcelas: n, data, categoria: 'Cartão de crédito', origem: 'renegociacao' });
+    fecharModal();
+    toast(`Acordo salvo: ${n}x de ${fmt(parcela)}`);
   });
 }
 
@@ -1592,7 +1630,7 @@ async function exportarPlanilha() {
   gerandoPlanilha = true;
   toast('Gerando planilha…');
   try {
-    const X = await import('./planilha.js?v=3.2');
+    const X = await import('./planilha.js?v=3.3');
     const { blob, lancamentos } = await X.gerarPlanilha({ D, ym, nomeCarteira: (id) => carteira(id)?.nome || '', usuario: prefs().apelido || (usuario.displayName || '').split(' ')[0] });
     baixar(`financas-${ym}.xlsx`, blob, blob.type);
     toast(`Planilha de ${C.rotuloMes(ym).toLowerCase()} pronta · ${plural(lancamentos, 'lançamento', 'lançamentos')}`);
@@ -2369,6 +2407,11 @@ const ACOES = {
   'editar-orcamento': (id) => { const x = D.orcamentos.find((c) => c.id === id); if (x) formOrcamento(x); },
   'editar-meta': (id) => { const x = D.metas.find((c) => c.id === id); if (x) formMeta(x); },
   'ver-fatura': (id) => verFatura(id),
+  fechar: () => fecharModal(),
+  'renegociar-fatura': (id) => {
+    const [cardId] = id.split('_');
+    const card = carteira(cardId); if (card) renegociarFatura(C.faturaDe(D, card, id.slice(cardId.length + 1)));
+  },
   'pagar-pendente': (id, el) => {
     if (el.dataset.tipo === 'fatura') { ACOES.pagar(id, el); return; }
     const c = D.contas.find((x) => x.id === id); if (!c) return;

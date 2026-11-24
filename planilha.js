@@ -1,7 +1,7 @@
 // Exporta a planilha do Excel (.xlsx) formatada. Carregado só quando o usuário pede a planilha.
 // Os números vêm dos mesmos cálculos do app (calc.js e planos.js).
-import * as C from './calc.js?v=3.2';
-import * as P from './planos.js?v=3.2';
+import * as C from './calc.js?v=3.3';
+import * as P from './planos.js?v=3.3';
 
 const EXCELJS = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
 const EXCELJS_SRI = 'sha384-Pqp51FUN2/qzfxZxBCtF0stpc9ONI6MYZpVqmo8m20SoaQCzf+arZvACkLkirlPz';
