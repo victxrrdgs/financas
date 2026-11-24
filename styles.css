@@ -520,3 +520,5 @@ body.travado #app, body.travado #modal { display: none !important; }
 /* Fechamento do mês (item 06) */
 .fech-frase { font-size: 16px; line-height: 1.5; color: var(--text-2); margin: 4px 0 0; }
 .fech-frase b { color: var(--text); font-weight: 600; }
+
+.voltar-hoje { display: block; margin: 14px 8px 0; min-height: 44px; }

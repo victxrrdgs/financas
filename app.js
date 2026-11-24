@@ -1,11 +1,11 @@
-import { criarStore, modoLocal, COLECOES } from './store.js?v=3.9';
-import * as C from './calc.js?v=3.9';
-import * as P from './planos.js?v=3.9';
-import * as L from './lock.js?v=3.9';
-import { interpretar, marcar } from './parser.js?v=3.9';
-import { icone } from './icons.js?v=3.9';
+import { criarStore, modoLocal, COLECOES } from './store.js?v=3.9.1';
+import * as C from './calc.js?v=3.9.1';
+import * as P from './planos.js?v=3.9.1';
+import * as L from './lock.js?v=3.9.1';
+import { interpretar, marcar } from './parser.js?v=3.9.1';
+import { icone } from './icons.js?v=3.9.1';
 
-const VERSAO = '3.9';
+const VERSAO = '3.9.1';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -302,7 +302,9 @@ function seletorMes(ano) {
 }
 
 // ----- Início -----
+// "Pode gastar hoje" e "Precisa de você" são sobre hoje; em outro mês, a Hoje vira o resumo daquele mês.
 function telaInicio() {
+  if (ym !== C.ymAtual()) return telaOutroMes();
   const r = C.resumoMes(D, ym);
   const rc = modCom() ? C.resumoComissoes(D, ym) : null;
   const previsao = C.r2(r.previsao + (rc ? rc.previstoMes : 0));
@@ -337,6 +339,33 @@ function telaInicio() {
 
   ${precisaDeVoce(r, p, rc)}
 
+  ${saudeCompacta()}`;
+}
+
+function telaOutroMes() {
+  const r = C.resumoMes(D, ym);
+  const rc = modCom() ? C.resumoComissoes(D, ym) : null;
+  const previsao = C.r2(r.previsao + (rc ? rc.previstoMes : 0));
+  const passado = ym < C.ymAtual();
+  const nome = C.nomeMes(ym).toLowerCase();
+  const valor = passado ? r.sobra : previsao;
+  const abertos = [...r.abertos].sort((a, b) => a.data.localeCompare(b.data));
+  return `
+  <div class="hero2">
+    <span class="h2-lbl">${passado ? `Sobrou em ${nome}` : `Previsto para o fim de ${nome}`}</span>
+    <span class="h2-linha"><span class="hero-val ${valor < 0 ? 'neg' : ''}" data-count="${valor}">${fmt(valor)}</span></span>
+    <span class="h2-sub">${passado ? `Entrou ${fmt(r.entrou)} e você pagou ${fmt(r.pago)}.` : `Entram ${fmt(r.entrou)} e saem ${fmt(r.total)} em contas e faturas.`}</span>
+  </div>
+  <button class="link voltar-hoje" data-a="escolher-mes" data-id="${C.ymAtual()}">‹ Voltar para hoje</button>
+  <div class="duo">
+    <div class="mini-card"><span>${passado ? 'Pago' : 'Já pago'}</span><b>${fmt(r.pago)}</b></div>
+    <div class="mini-card"><span>${passado ? 'Ficou em aberto' : 'A pagar'}</span><b class="${r.aPagar > 0 && passado ? 'neg' : ''}">${fmt(r.aPagar)}</b></div>
+  </div>
+  <div class="sec">
+    <div class="sec-h"><h3>${passado ? 'Ficou em aberto' : `Contas de ${nome}`}</h3>${abertos.length ? `<span class="cont">${abertos.length}</span>` : ''}</div>
+    ${abertos.length ? `<div class="list g">${abertos.slice(0, 6).map(linhaPagavel).join('')}</div>${abertos.length > 6 ? '<button class="link ver-tudo" data-a="ir" data-id="lanc">Ver tudo</button>' : ''}`
+      : `<p class="vazio-txt">Nenhuma conta em aberto em ${nome}.</p>`}
+  </div>
   ${saudeCompacta()}`;
 }
 
@@ -1676,7 +1705,7 @@ async function exportarPlanilha() {
   gerandoPlanilha = true;
   toast('Gerando planilha…');
   try {
-    const X = await import('./planilha.js?v=3.9');
+    const X = await import('./planilha.js?v=3.9.1');
     const { blob, lancamentos } = await X.gerarPlanilha({ D, ym, nomeCarteira: (id) => carteira(id)?.nome || '', usuario: prefs().apelido || (usuario.displayName || '').split(' ')[0] });
     baixar(`financas-${ym}.xlsx`, blob, blob.type);
     toast(`Planilha de ${C.rotuloMes(ym).toLowerCase()} pronta · ${plural(lancamentos, 'lançamento', 'lançamentos')}`);
