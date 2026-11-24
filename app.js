@@ -1,10 +1,10 @@
-import { criarStore, modoLocal, COLECOES } from './store.js?v=3.5';
-import * as C from './calc.js?v=3.5';
-import * as P from './planos.js?v=3.5';
-import * as L from './lock.js?v=3.5';
-import { interpretar, marcar } from './parser.js?v=3.5';
+import { criarStore, modoLocal, COLECOES } from './store.js?v=3.6';
+import * as C from './calc.js?v=3.6';
+import * as P from './planos.js?v=3.6';
+import * as L from './lock.js?v=3.6';
+import { interpretar, marcar } from './parser.js?v=3.6';
 
-const VERSAO = '3.5';
+const VERSAO = '3.6';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -1630,7 +1630,7 @@ async function exportarPlanilha() {
   gerandoPlanilha = true;
   toast('Gerando planilha…');
   try {
-    const X = await import('./planilha.js?v=3.5');
+    const X = await import('./planilha.js?v=3.6');
     const { blob, lancamentos } = await X.gerarPlanilha({ D, ym, nomeCarteira: (id) => carteira(id)?.nome || '', usuario: prefs().apelido || (usuario.displayName || '').split(' ')[0] });
     baixar(`financas-${ym}.xlsx`, blob, blob.type);
     toast(`Planilha de ${C.rotuloMes(ym).toLowerCase()} pronta · ${plural(lancamentos, 'lançamento', 'lançamentos')}`);
@@ -1799,10 +1799,30 @@ function guiaDividas(ds, sim, aporte, minimo) {
       ${itens.map(([id, v]) => `<div class="mp-l"><span>${nomeDe(id)}${l.quitadas.includes(id) ? ' <b class="pos">quitada</b>' : ''}</span><span>${fmt(v)}</span></div>`).join('')}
       ${l.juros > 0 ? `<div class="mp-l m"><span>Juros do mês</span><span>${fmt(l.juros)}</span></div>` : ''}</div>`;
   }).join('');
+  // "E se...": quanto muda o prazo e os juros com um esforço extra.
+  const est = prefs().planoEstrategia || 'avalanche';
+  const eSe = [['Separar R$ 200 a mais por mês', P.simular(ds, aporte + 200, est)], ['Antecipar R$ 500 no 1º mês', P.simular(ds, aporte, est, 500)]]
+    .filter(([, s]) => s.viavel && sim.viavel)
+    .map(([t, s]) => {
+      const dm = sim.meses - s.meses; const dj = C.r2(sim.juros - s.juros);
+      return `<div class="row"><div class="info"><div class="t">${t}</div><div class="m">${dm > 0 ? `${plural(dm, 'mês', 'meses')} antes` : 'mesmo prazo'} · ${dj > 0 ? `${fmt(dj)} a menos de juros` : 'juros quase iguais'}</div></div></div>`;
+    }).join('');
+  // Dicas só para os tipos de dívida que existem.
+  const tipos = new Set(ds.map((d) => (d.tipo.startsWith('Parcelado') ? 'acordo' : d.tipo)));
+  const DICAS = {
+    'Fatura em atraso': 'Rotativo do cartão é o juro mais caro. Peça ao banco o parcelamento da fatura: costuma ter juro bem menor, e por lei os encargos do rotativo não passam de 100% da dívida.',
+    'Cheque especial': 'Cheque especial cobra até 8% ao mês. Se não der para cobrir logo, troque por um empréstimo pessoal ou consignado com taxa menor e use o dinheiro para zerar a conta.',
+    acordo: 'Acordo em dia não gera juro novo. Coloque as parcelas no débito automático ou num lembrete, e não use o cartão renegociado enquanto o acordo durar.',
+    'Conta vencida': 'Conta vencida tem multa de até 2% e juros de cerca de 1% ao mês. Pague antes das que têm corte de serviço ou negativação.',
+  };
+  const dicas = Object.keys(DICAS).filter((k) => tipos.has(k)).map((k) => `<div class="row"><div class="info"><div class="m">${DICAS[k]}</div></div></div>`).join('');
+  const extras = `${eSe ? `<div class="sec"><div class="sec-h"><h3>E se…</h3></div><div class="list g guia">${eSe}</div></div>` : ''}
+  ${dicas ? `<div class="sec"><div class="sec-h"><h3>Dicas para as suas dívidas</h3></div><div class="list g guia">${dicas}</div></div>` : ''}`;
   return `<div class="sec"><div class="sec-h"><h3>Seu plano, passo a passo</h3></div>
     <div class="list g guia">${passos.map((p, i) => `<div class="row"><div class="ic" style="--c:#c6f432">${i + 1}</div><div class="info"><div class="t">${esc(p.t)}</div><div class="m">${p.d}</div></div></div>`).join('')}</div></div>
   <div class="sec"><div class="sec-h"><h3>Comparar estratégias</h3></div><div class="list g guia">${cmp}</div>
     <p class="vazio-txt" style="margin-top:8px">Mesmo valor mensal nas duas primeiras. O rotativo do cartão para de crescer quando os juros chegam a 100% da dívida, como manda a lei.</p></div>
+  ${extras}
   ${linhas ? `<div class="sec"><details class="dicas plano-mes"><summary>Mês a mês: quanto pagar em cada dívida</summary>${linhas}</details></div>` : ''}`;
 }
 

@@ -1,5 +1,5 @@
 // Dívidas, simulador de quitação, fluxo de caixa projetado, boletos e importação de extratos.
-import * as C from './calc.js?v=3.5';
+import * as C from './calc.js?v=3.6';
 
 export const TAXA_CHEQUE = 8; // % ao mês, padrão quando a conta não tem taxa cadastrada
 const pad = C.pad;
@@ -49,7 +49,8 @@ export function listaDividas(D) {
 
 // Simula a quitação: juros mensais nas dívidas rotativas, parcelas fixas pagas todo mês,
 // e o que sobrar do aporte vai para a dívida-alvo da estratégia.
-export function simular(dividas, aporte, estrategia = 'avalanche') {
+// extra1: valor a mais só no 1º mês (ex.: antecipar com o 13º ou uma comissão).
+export function simular(dividas, aporte, estrategia = 'avalanche', extra1 = 0) {
   const ds = dividas.map((d) => ({ ...d, s: d.saldo }));
   // Parcela do mês; um crédito (parcela negativa, ex.: ajuste do banco) entra uma vez só, abatendo aquele mês.
   const parcelaDoMes = (d) => (d.parcela < 0 ? d.s : Math.min(d.parcela, d.s));
@@ -80,7 +81,7 @@ export function simular(dividas, aporte, estrategia = 'avalanche') {
         d.s += j; d.jAcum += j; juros += j; jMes += j;
       }
     });
-    let caixa = aporte;
+    let caixa = aporte + (mes === 1 ? extra1 : 0);
     ds.forEach((d) => { if (d.parcela && Math.abs(d.s) > 0.005) { const p = parcelaDoMes(d); pagar(d, p); caixa -= p; } });
     if (caixa < 0) { falta = -caixa; break; }
     const rot = ds.filter((d) => d.s > 0.005 && !d.parcela).sort(estrategia === 'avalanche' ? (a, b) => b.taxa - a.taxa || a.s - b.s : (a, b) => a.s - b.s);
